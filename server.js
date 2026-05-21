@@ -22,6 +22,9 @@ const MAX_JSON_BYTES = 64 * 1024;
 const AUTH_COOKIE = 'metadata_session';
 const SESSION_TTL_SECONDS = Math.max(3600, parsePositiveInt(process.env.METADATA_SESSION_TTL_SECONDS, 30 * 24 * 60 * 60));
 const PASSWORD_ITERATIONS = Math.max(120_000, parsePositiveInt(process.env.METADATA_PASSWORD_ITERATIONS, 210_000));
+const ADMIN_EMAIL = normalizeEmail(process.env.METADATA_ADMIN_EMAIL || '');
+const ADMIN_USERNAME = cleanUsername(process.env.METADATA_ADMIN_USERNAME || 'iClexi');
+const ADMIN_PASSWORD = String(process.env.METADATA_ADMIN_PASSWORD || '');
 const EXIFTOOL_BIN = process.env.METADATA_EXIFTOOL_BIN || 'exiftool';
 const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno para trabajar sus metadatos.';
 const EDITABLE_METADATA_FIELDS = {
@@ -85,6 +88,9 @@ async function initDb() {
     create unique index if not exists users_username_lower_idx on users (lower(username));
     create index if not exists users_created_at_idx on users (created_at desc);
 
+    alter table users
+      add column if not exists role text not null default 'user';
+
     create table if not exists user_sessions (
       id uuid primary key,
       user_id uuid not null references users(id) on delete cascade,
@@ -116,6 +122,47 @@ async function initDb() {
     create index if not exists user_events_user_id_idx on user_events (user_id, created_at desc);
     create index if not exists user_events_created_at_idx on user_events (created_at desc);
 
+    create table if not exists request_telemetry (
+      id bigserial primary key,
+      user_id uuid references users(id) on delete set null,
+      session_id uuid,
+      method text not null,
+      path text not null,
+      ip text not null default '',
+      user_agent text not null default '',
+      device_label text not null default '',
+      browser text not null default '',
+      os text not null default '',
+      device_type text not null default '',
+      referer text not null default '',
+      accept_language text not null default '',
+      cf_country text not null default '',
+      details jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    );
+
+    create index if not exists request_telemetry_created_at_idx
+      on request_telemetry (created_at desc);
+    create index if not exists request_telemetry_ip_idx
+      on request_telemetry (ip, created_at desc);
+    create index if not exists request_telemetry_user_id_idx
+      on request_telemetry (user_id, created_at desc);
+
+    create table if not exists admin_blocks (
+      id uuid primary key,
+      block_type text not null check (block_type in ('ip', 'user')),
+      value text not null,
+      reason text not null default '',
+      created_by uuid references users(id) on delete set null,
+      created_at timestamptz not null default now(),
+      expires_at timestamptz,
+      revoked_at timestamptz
+    );
+
+    create unique index if not exists admin_blocks_active_idx
+      on admin_blocks (block_type, lower(value))
+      where revoked_at is null;
+
     create table if not exists file_metadata_analyses (
       id bigserial primary key,
       user_id uuid references users(id) on delete set null,
@@ -139,6 +186,7 @@ async function initDb() {
     create index if not exists file_metadata_analyses_user_id_idx
       on file_metadata_analyses (user_id, created_at desc);
   `);
+  await ensureAdminUser();
 }
 
 const securityHeaders = {
@@ -328,6 +376,50 @@ function verifyPassword(password, user) {
   return timingSafeStringEqual(digest, user.password_hash);
 }
 
+async function ensureAdminUser() {
+  if (!pool || !ADMIN_EMAIL || !ADMIN_USERNAME || !ADMIN_PASSWORD) return;
+  const password = validatePassword(ADMIN_PASSWORD);
+  const digest = hashPassword(password);
+  const existing = await pool.query('select id from users where email_normalized = $1 limit 1', [ADMIN_EMAIL]);
+  if (existing.rows[0]) {
+    await pool.query(
+      `update users
+       set username = $2,
+           email = $3,
+           role = 'admin',
+           password_hash = $4,
+           password_salt = $5,
+           password_iterations = $6,
+           updated_at = now()
+       where id = $1`,
+      [existing.rows[0].id, ADMIN_USERNAME, ADMIN_EMAIL, digest.hash, digest.salt, digest.iterations]
+    );
+    return;
+  }
+  try {
+    await pool.query(
+      `insert into users
+         (id, username, email, email_normalized, password_hash, password_salt, password_iterations, role)
+       values ($1, $2, $3, $4, $5, $6, $7, 'admin')`,
+      [randomUUID(), ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_EMAIL, digest.hash, digest.salt, digest.iterations]
+    );
+  } catch (error) {
+    if (error?.code !== '23505') throw error;
+    await pool.query(
+      `update users
+       set email = $2,
+           email_normalized = $2,
+           role = 'admin',
+           password_hash = $3,
+           password_salt = $4,
+           password_iterations = $5,
+           updated_at = now()
+       where lower(username) = lower($1)`,
+      [ADMIN_USERNAME, ADMIN_EMAIL, digest.hash, digest.salt, digest.iterations]
+    );
+  }
+}
+
 function publicUser(row) {
   if (!row) return null;
   return {
@@ -339,7 +431,7 @@ function publicUser(row) {
   };
 }
 
-function describeUserAgent(userAgent = '') {
+function parseUserAgent(userAgent = '') {
   const ua = String(userAgent);
   const lower = ua.toLowerCase();
   const device = /ipad|tablet/.test(lower) ? 'tablet' : /mobi|android|iphone/.test(lower) ? 'mobile' : 'desktop';
@@ -354,7 +446,20 @@ function describeUserAgent(userAgent = '') {
         : /mac os|macintosh/i.test(ua) ? 'macOS'
           : /linux/i.test(ua) ? 'Linux'
             : 'Sistema';
-  return `${browser} · ${os} · ${device}`;
+  return {
+    browser,
+    os,
+    device,
+    label: `${browser} · ${os} · ${device}`
+  };
+}
+
+function describeUserAgent(userAgent = '') {
+  return parseUserAgent(userAgent).label;
+}
+
+function shortHeader(value, maxLength = 240) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, maxLength);
 }
 
 async function readJson(req) {
@@ -409,8 +514,13 @@ async function currentAuth(req) {
   const row = rows[0];
   if (!row) return null;
   await pool.query(
-    'update user_sessions set last_seen_at = now(), ip = $2, user_agent = $3 where id = $1',
-    [row.session_id, clientIp(req), String(req.headers['user-agent'] || '').slice(0, 700)]
+    'update user_sessions set last_seen_at = now(), ip = $2, user_agent = $3, device_label = $4 where id = $1',
+    [
+      row.session_id,
+      clientIp(req),
+      String(req.headers['user-agent'] || '').slice(0, 700),
+      describeUserAgent(req.headers['user-agent'] || '')
+    ]
   ).catch(() => {});
   return { session_id: row.session_id, user: publicUser(row) };
 }
@@ -430,6 +540,82 @@ async function logUserEvent(auth, req, eventType, entityType = '', entityId = ''
       JSON.stringify(details)
     ]
   ).catch(() => {});
+}
+
+function shouldLogTelemetry(method, pathname) {
+  if (!pool) return false;
+  if (pathname === '/api/health') return false;
+  if (/\.(?:css|js|svg|ico|png|jpg|jpeg|webp|map)$/i.test(pathname)) return false;
+  if (pathname.startsWith('/api/')) return true;
+  return ['/', '/admin', '/terminos', '/condiciones', '/privacidad', '/cookies', '/terms', '/privacy'].includes(pathname);
+}
+
+function telemetryDetails(req) {
+  return {
+    host: shortHeader(req.headers.host, 160),
+    cfRay: shortHeader(req.headers['cf-ray'], 120),
+    secChUa: shortHeader(req.headers['sec-ch-ua'], 260),
+    secChUaPlatform: shortHeader(req.headers['sec-ch-ua-platform'], 80),
+    secChUaMobile: shortHeader(req.headers['sec-ch-ua-mobile'], 20)
+  };
+}
+
+async function logRequestTelemetry(auth, req, url) {
+  if (!shouldLogTelemetry(req.method || 'GET', url.pathname)) return;
+  const userAgent = shortHeader(req.headers['user-agent'], 700);
+  const parsed = parseUserAgent(userAgent);
+  await pool.query(
+    `insert into request_telemetry
+       (user_id, session_id, method, path, ip, user_agent, device_label, browser, os, device_type,
+        referer, accept_language, cf_country, details)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    [
+      auth?.user?.id || null,
+      auth?.session_id || null,
+      shortHeader(req.method || 'GET', 12),
+      shortHeader(url.pathname, 220),
+      clientIp(req),
+      userAgent,
+      parsed.label,
+      parsed.browser,
+      parsed.os,
+      parsed.device,
+      shortHeader(req.headers.referer, 500),
+      shortHeader(req.headers['accept-language'], 260),
+      shortHeader(req.headers['cf-ipcountry'], 20),
+      JSON.stringify(telemetryDetails(req))
+    ]
+  ).catch(() => {});
+}
+
+function userBlockValues(auth) {
+  if (!auth?.user) return [];
+  return [
+    auth.user.id,
+    normalizeEmail(auth.user.email),
+    cleanUsername(auth.user.username).toLowerCase()
+  ].filter(Boolean);
+}
+
+async function enforceRequestBlocks(req, auth, url) {
+  if (!pool || auth?.user?.role === 'admin') return;
+  if (!url.pathname.startsWith('/api/') || url.pathname === '/api/health' || url.pathname === '/api/auth/me') return;
+  const values = userBlockValues(auth);
+  const { rows } = await pool.query(
+    `select block_type, value, reason
+     from admin_blocks
+     where revoked_at is null
+       and (expires_at is null or expires_at > now())
+       and (
+         (block_type = 'ip' and lower(value) = lower($1))
+         or (block_type = 'user' and lower(value) = any($2::text[]))
+       )
+     limit 1`,
+    [clientIp(req), values.map((value) => value.toLowerCase())]
+  );
+  if (rows[0]) {
+    throw new RequestError(403, 'Acceso bloqueado por politica administrativa.');
+  }
 }
 
 async function parseFileUpload(req) {
@@ -1081,6 +1267,19 @@ async function handleLogin(req, res) {
   if (!userRow || !verifyPassword(password, userRow)) {
     throw new RequestError(401, 'Email o contrasena incorrectos.');
   }
+  if (userRow.role !== 'admin') {
+    const values = [userRow.id, normalizeEmail(userRow.email), cleanUsername(userRow.username).toLowerCase()].filter(Boolean);
+    const block = await pool.query(
+      `select id from admin_blocks
+       where block_type = 'user'
+         and revoked_at is null
+         and (expires_at is null or expires_at > now())
+         and lower(value) = any($1::text[])
+       limit 1`,
+      [values.map((value) => value.toLowerCase())]
+    );
+    if (block.rows[0]) throw new RequestError(403, 'Esta cuenta esta bloqueada por politica administrativa.');
+  }
   const user = publicUser(userRow);
   await createSession(req, res, user);
   await logUserEvent({ user }, req, 'login');
@@ -1098,6 +1297,11 @@ async function handleLogout(req, res, auth) {
 
 function requireUser(auth) {
   if (!auth?.user?.id) throw new RequestError(401, 'Inicia sesion.');
+}
+
+function requireAdmin(auth) {
+  requireUser(auth);
+  if (auth.user.role !== 'admin') throw new RequestError(403, 'Necesitas permisos de administrador.');
 }
 
 async function accountHistory(req, res, auth) {
@@ -1159,9 +1363,136 @@ async function logoutOtherSessions(req, res, auth) {
   sendJson(res, 200, { ok: true });
 }
 
+async function adminOverview(req, res, auth) {
+  requireAdmin(auth);
+  const [
+    stats,
+    users,
+    telemetry,
+    events,
+    blocks
+  ] = await Promise.all([
+    pool.query(`
+      select
+        (select count(*)::int from users) as users,
+        (select count(*)::int from file_metadata_analyses) as analyses,
+        (select count(*)::int from request_telemetry where created_at > now() - interval '24 hours') as visits_today,
+        (select count(*)::int from user_sessions where revoked_at is null and expires_at > now()) as active_sessions,
+        (select count(*)::int from admin_blocks where revoked_at is null and (expires_at is null or expires_at > now())) as active_blocks
+    `),
+    pool.query(`
+      select u.id, u.username, u.email, u.role, u.created_ip, u.created_user_agent, u.created_at,
+             count(distinct a.id)::int as analysis_count,
+             count(distinct s.id) filter (where s.revoked_at is null and s.expires_at > now())::int as active_sessions,
+             max(coalesce(e.created_at, t.created_at, u.created_at)) as last_activity
+      from users u
+      left join file_metadata_analyses a on a.user_id = u.id
+      left join user_sessions s on s.user_id = u.id
+      left join user_events e on e.user_id = u.id
+      left join request_telemetry t on t.user_id = u.id
+      group by u.id
+      order by last_activity desc nulls last, u.created_at desc
+      limit 80
+    `),
+    pool.query(`
+      select t.id, t.method, t.path, t.ip, t.user_agent, t.device_label, t.browser, t.os, t.device_type,
+             t.referer, t.accept_language, t.cf_country, t.created_at,
+             u.username, u.email
+      from request_telemetry t
+      left join users u on u.id = t.user_id
+      order by t.created_at desc
+      limit 120
+    `),
+    pool.query(`
+      select e.id, e.event_type, e.entity_type, e.entity_id, e.ip, e.details, e.created_at,
+             u.username, u.email
+      from user_events e
+      left join users u on u.id = e.user_id
+      order by e.created_at desc
+      limit 120
+    `),
+    pool.query(`
+      select b.id, b.block_type, b.value, b.reason, b.created_at, b.expires_at,
+             u.username as created_by_username
+      from admin_blocks b
+      left join users u on u.id = b.created_by
+      where b.revoked_at is null and (b.expires_at is null or b.expires_at > now())
+      order by b.created_at desc
+      limit 80
+    `)
+  ]);
+
+  sendJson(res, 200, {
+    ok: true,
+    stats: stats.rows[0] || {},
+    users: users.rows,
+    telemetry: telemetry.rows,
+    events: events.rows,
+    blocks: blocks.rows
+  });
+}
+
+function cleanBlockType(value) {
+  const type = String(value || '').trim().toLowerCase();
+  if (!['ip', 'user'].includes(type)) throw new RequestError(400, 'Tipo de bloqueo invalido.');
+  return type;
+}
+
+async function normalizeBlockValue(blockType, rawValue, auth, req) {
+  const value = String(rawValue || '').trim();
+  if (!value) throw new RequestError(400, 'Indica el valor que quieres bloquear.');
+  if (blockType === 'ip') {
+    const ip = value.slice(0, 80);
+    if (ip === clientIp(req)) throw new RequestError(400, 'No bloquees la IP administrativa actual desde la interfaz.');
+    return ip;
+  }
+
+  const lookup = value.toLowerCase();
+  const { rows } = await pool.query(
+    `select id, role from users
+     where id::text = $1 or email_normalized = $1 or lower(username) = $1
+     limit 1`,
+    [lookup]
+  );
+  const user = rows[0];
+  if (!user) throw new RequestError(404, 'No se encontro ese usuario.');
+  if (user.id === auth.user.id || user.role === 'admin') {
+    throw new RequestError(400, 'No se puede bloquear la cuenta administradora desde este panel.');
+  }
+  return user.id;
+}
+
+async function createAdminBlock(req, res, auth) {
+  requireAdmin(auth);
+  const payload = await readJson(req);
+  const blockType = cleanBlockType(payload.blockType);
+  const value = await normalizeBlockValue(blockType, payload.value, auth, req);
+  const reason = shortHeader(payload.reason, 300);
+  const { rows } = await pool.query(
+    `insert into admin_blocks (id, block_type, value, reason, created_by)
+     values ($1, $2, $3, $4, $5)
+     on conflict do nothing
+     returning id`,
+    [randomUUID(), blockType, value, reason, auth.user.id]
+  );
+  await logUserEvent(auth, req, 'admin_block_created', 'admin_block', rows[0]?.id || '', { blockType, value, reason });
+  sendJson(res, 201, { ok: true, id: rows[0]?.id || null });
+}
+
+async function revokeAdminBlock(req, res, auth, blockId) {
+  requireAdmin(auth);
+  await pool.query(
+    'update admin_blocks set revoked_at = now() where id = $1 and revoked_at is null',
+    [blockId]
+  );
+  await logUserEvent(auth, req, 'admin_block_revoked', 'admin_block', blockId);
+  sendJson(res, 200, { ok: true });
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const routeAliases = {
+    '/admin': '/index.html',
     '/terminos': '/terms.html',
     '/condiciones': '/terms.html',
     '/privacidad': '/privacy.html',
@@ -1194,6 +1525,8 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const auth = await currentAuth(req);
+    logRequestTelemetry(auth, req, url);
+    await enforceRequestBlocks(req, auth, url);
     if (req.method === 'GET' && url.pathname === '/api/health') {
       let database = 'disabled';
       if (pool) {
@@ -1245,6 +1578,22 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/account/sessions/logout-others') {
       await logoutOtherSessions(req, res, auth);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/admin/overview') {
+      await adminOverview(req, res, auth);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/admin/blocks') {
+      await createAdminBlock(req, res, auth);
+      return;
+    }
+
+    const adminBlockRevokeMatch = url.pathname.match(/^\/api\/admin\/blocks\/([0-9a-f-]{36})\/revoke$/);
+    if (req.method === 'POST' && adminBlockRevokeMatch) {
+      await revokeAdminBlock(req, res, auth, adminBlockRevokeMatch[1]);
       return;
     }
 

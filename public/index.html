@@ -6,9 +6,10 @@
     <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
     <title>File Metadata Inspector</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260521-legal-workbench2">
+    <link rel="stylesheet" href="/styles.css?v=20260521-admin-motion2">
   </head>
   <body>
+    <a class="skip-link" href="#uploadForm">Saltar al selector de archivo</a>
     <main class="page-shell">
       <header class="topbar" aria-label="Cuenta">
         <a class="brand-mark" href="/" aria-label="File Metadata Inspector">
@@ -17,6 +18,7 @@
         </a>
         <div class="auth-actions">
           <span id="sessionUser" class="session-user" hidden></span>
+          <button id="adminButton" class="secondary-button compact" type="button" hidden>Admin</button>
           <button id="accountButton" class="secondary-button compact" type="button" hidden>Cuenta</button>
           <button id="authOpen" class="primary-button compact" type="button">Entrar</button>
         </div>
@@ -144,7 +146,7 @@
                 <p>La pagina trabaja solo para extraer o editar metadata tecnica. No publica archivos, no crea enlaces compartibles y evita guardar contenido innecesario.</p>
                 <div class="legal-chip-list" aria-label="Resumen legal">
                   <span>Cookies esenciales</span>
-                  <span>Sin analitica invasiva</span>
+                  <span>Telemetria tecnica visible</span>
                   <span>Cuenta opcional</span>
                   <span>1 GB maximo</span>
                 </div>
@@ -211,6 +213,77 @@
               <h3>Sesiones activas</h3>
             </div>
             <div id="sessionsList" class="sessions-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="adminPanel" class="admin-panel" aria-live="polite" hidden>
+        <div class="results-heading">
+          <div>
+            <p class="eyebrow">Administracion</p>
+            <h2>Telemetria tecnica y control de acceso</h2>
+          </div>
+          <div class="panel-actions">
+            <button id="refreshAdmin" class="secondary-button compact" type="button">Actualizar</button>
+          </div>
+        </div>
+
+        <div id="adminStats" class="admin-stats"></div>
+
+        <div class="admin-grid">
+          <article class="detail-panel admin-block-card">
+            <div class="panel-head">
+              <h3>Bloquear acceso</h3>
+            </div>
+            <form id="adminBlockForm" class="admin-block-form" autocomplete="off">
+              <label class="field-control" for="blockType">
+                <span>Tipo</span>
+                <select id="blockType" name="blockType">
+                  <option value="ip">IP</option>
+                  <option value="user">Usuario</option>
+                </select>
+              </label>
+              <label class="field-control" for="blockValue">
+                <span>Valor</span>
+                <input id="blockValue" name="value" type="text" placeholder="IP, email, usuario o ID">
+              </label>
+              <label class="field-control wide" for="blockReason">
+                <span>Motivo</span>
+                <input id="blockReason" name="reason" type="text" maxlength="300" placeholder="Abuso, spam o riesgo operativo">
+              </label>
+              <button class="primary-button" type="submit">Crear bloqueo</button>
+            </form>
+            <p id="adminMessage" class="auth-message" role="status" aria-live="polite"></p>
+          </article>
+
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Bloqueos activos</h3>
+            </div>
+            <div id="adminBlocks" class="admin-list"></div>
+          </article>
+        </div>
+
+        <div class="admin-grid wide">
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Usuarios</h3>
+            </div>
+            <div id="adminUsers" class="admin-list"></div>
+          </article>
+
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Visitas y requests</h3>
+            </div>
+            <div id="adminTelemetry" class="admin-list"></div>
+          </article>
+
+          <article class="detail-panel raw-panel">
+            <div class="panel-head">
+              <h3>Eventos de cuenta y archivos</h3>
+            </div>
+            <div id="adminEvents" class="admin-list"></div>
           </article>
         </div>
       </section>
@@ -285,7 +358,7 @@
           <article>
             <span>Datos</span>
             <strong>Minimos</strong>
-            <p>Solo se registra metadata tecnica y actividad de cuenta si decides iniciar sesion.</p>
+            <p>Solo se registra metadata tecnica, actividad de cuenta y telemetria operativa para seguridad.</p>
           </article>
           <article>
             <span>Cookies</span>
@@ -307,41 +380,77 @@
     <section id="authModal" class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden>
       <button class="auth-backdrop" type="button" data-auth-close aria-label="Cerrar"></button>
       <div class="auth-panel">
-        <div class="auth-head">
-          <div>
-            <p class="eyebrow">Acceso</p>
-            <h2 id="authTitle">Cuenta de metadata</h2>
+        <aside class="auth-aside" aria-label="Ventajas de la cuenta">
+          <p class="eyebrow">Cuenta opcional</p>
+          <h2>Historial privado sin convertir archivos en hosting</h2>
+          <p>Guarda solo registros tecnicos de analisis, sesiones activas y actividad administrativa cuando aplica.</p>
+          <div class="auth-benefits">
+            <span>Cookie HttpOnly</span>
+            <span>Sesiones visibles</span>
+            <span>Archivos no persistentes</span>
           </div>
-          <button class="icon-button" type="button" data-auth-close aria-label="Cerrar">x</button>
+        </aside>
+
+        <div class="auth-box">
+          <div class="auth-head">
+            <div>
+              <p class="eyebrow">Acceso</p>
+              <h2 id="authTitle">Entrar a la cuenta</h2>
+            </div>
+            <button class="icon-button" type="button" data-auth-close aria-label="Cerrar">x</button>
+          </div>
+
+          <div class="auth-tabs" role="tablist" aria-label="Autenticacion">
+            <button id="loginTab" class="auth-tab active" type="button" role="tab" aria-selected="true" aria-controls="loginForm">Entrar</button>
+            <button id="registerTab" class="auth-tab" type="button" role="tab" aria-selected="false" aria-controls="registerForm">Crear cuenta</button>
+          </div>
+
+          <form id="loginForm" class="auth-form">
+            <div class="auth-field">
+              <label for="loginEmail">Correo</label>
+              <p id="loginEmailHint">Usa el correo registrado en tu cuenta.</p>
+              <input id="loginEmail" name="email" type="email" autocomplete="email" inputmode="email" enterkeyhint="next" aria-describedby="loginEmailHint" required>
+            </div>
+            <div class="auth-field">
+              <label for="loginPassword">Contrasena</label>
+              <p id="loginPasswordHint">Tu sesion queda protegida con cookie HttpOnly.</p>
+              <div class="password-control">
+                <input id="loginPassword" name="password" type="password" autocomplete="current-password" enterkeyhint="done" aria-describedby="loginPasswordHint" required>
+                <button class="password-toggle" type="button" data-password-toggle="loginPassword" aria-label="Mostrar contrasena" aria-pressed="false">Ver</button>
+              </div>
+            </div>
+            <button class="primary-button" type="submit">Entrar</button>
+            <p class="form-note">La cuenta es opcional; el analisis principal funciona sin iniciar sesion.</p>
+          </form>
+
+          <form id="registerForm" class="auth-form" hidden>
+            <div class="auth-field">
+              <label for="registerUsername">Usuario</label>
+              <p id="registerUsernameHint">Nombre visible para tu historial y sesiones.</p>
+              <input id="registerUsername" name="username" type="text" autocomplete="username" minlength="2" enterkeyhint="next" aria-describedby="registerUsernameHint" required>
+            </div>
+            <div class="auth-field">
+              <label for="registerEmail">Correo</label>
+              <p id="registerEmailHint">Se usa para entrar y asociar tu historial privado.</p>
+              <input id="registerEmail" name="email" type="email" autocomplete="email" inputmode="email" enterkeyhint="next" aria-describedby="registerEmailHint" required>
+            </div>
+            <div class="auth-field">
+              <label for="registerPassword">Contrasena</label>
+              <p id="registerPasswordHint">Minimo 8 caracteres; se guarda como hash, no en texto plano.</p>
+              <div class="password-control">
+                <input id="registerPassword" name="password" type="password" autocomplete="new-password" minlength="8" enterkeyhint="done" aria-describedby="registerPasswordHint" required>
+                <button class="password-toggle" type="button" data-password-toggle="registerPassword" aria-label="Mostrar contrasena" aria-pressed="false">Ver</button>
+              </div>
+            </div>
+            <button class="primary-button" type="submit">Crear cuenta</button>
+            <p class="form-note">No se guardan archivos completos ni enlaces publicos en tu cuenta.</p>
+          </form>
+
+          <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
         </div>
-
-        <div class="auth-tabs" role="tablist" aria-label="Autenticacion">
-          <button id="loginTab" class="auth-tab active" type="button">Entrar</button>
-          <button id="registerTab" class="auth-tab" type="button">Crear cuenta</button>
-        </div>
-
-        <form id="loginForm" class="auth-form">
-          <label for="loginEmail">Correo</label>
-          <input id="loginEmail" name="email" type="email" autocomplete="email" required>
-          <label for="loginPassword">Contrasena</label>
-          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
-          <button class="primary-button" type="submit">Entrar</button>
-        </form>
-
-        <form id="registerForm" class="auth-form" hidden>
-          <label for="registerUsername">Usuario</label>
-          <input id="registerUsername" name="username" type="text" autocomplete="username" minlength="2" required>
-          <label for="registerEmail">Correo</label>
-          <input id="registerEmail" name="email" type="email" autocomplete="email" required>
-          <label for="registerPassword">Contrasena</label>
-          <input id="registerPassword" name="password" type="password" autocomplete="new-password" minlength="8" required>
-          <button class="primary-button" type="submit">Crear cuenta</button>
-        </form>
-
-        <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
       </div>
     </section>
 
-    <script src="/app.js?v=20260521-legal-workbench2" type="module"></script>
+    <script src="/app.js?v=20260521-admin-motion2" type="module"></script>
   </body>
 </html>

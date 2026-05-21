@@ -16,6 +16,9 @@ create table if not exists users (
 create unique index if not exists users_username_lower_idx on users (lower(username));
 create index if not exists users_created_at_idx on users (created_at desc);
 
+alter table users
+  add column if not exists role text not null default 'user';
+
 create table if not exists user_sessions (
   id uuid primary key,
   user_id uuid not null references users(id) on delete cascade,
@@ -46,6 +49,49 @@ create table if not exists user_events (
 
 create index if not exists user_events_user_id_idx on user_events (user_id, created_at desc);
 create index if not exists user_events_created_at_idx on user_events (created_at desc);
+
+create table if not exists request_telemetry (
+  id bigserial primary key,
+  user_id uuid references users(id) on delete set null,
+  session_id uuid,
+  method text not null,
+  path text not null,
+  ip text not null default '',
+  user_agent text not null default '',
+  device_label text not null default '',
+  browser text not null default '',
+  os text not null default '',
+  device_type text not null default '',
+  referer text not null default '',
+  accept_language text not null default '',
+  cf_country text not null default '',
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists request_telemetry_created_at_idx
+  on request_telemetry (created_at desc);
+
+create index if not exists request_telemetry_ip_idx
+  on request_telemetry (ip, created_at desc);
+
+create index if not exists request_telemetry_user_id_idx
+  on request_telemetry (user_id, created_at desc);
+
+create table if not exists admin_blocks (
+  id uuid primary key,
+  block_type text not null check (block_type in ('ip', 'user')),
+  value text not null,
+  reason text not null default '',
+  created_by uuid references users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz,
+  revoked_at timestamptz
+);
+
+create unique index if not exists admin_blocks_active_idx
+  on admin_blocks (block_type, lower(value))
+  where revoked_at is null;
 
 create table if not exists file_metadata_analyses (
   id bigserial primary key,

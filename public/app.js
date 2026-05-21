@@ -33,12 +33,22 @@ const loginForm = document.querySelector('#loginForm');
 const registerForm = document.querySelector('#registerForm');
 const authMessage = document.querySelector('#authMessage');
 const sessionUser = document.querySelector('#sessionUser');
+const adminButton = document.querySelector('#adminButton');
 const accountButton = document.querySelector('#accountButton');
 const accountPanel = document.querySelector('#accountPanel');
 const accountHistory = document.querySelector('#accountHistory');
 const sessionsList = document.querySelector('#sessionsList');
 const logoutButton = document.querySelector('#logoutButton');
 const logoutOthers = document.querySelector('#logoutOthers');
+const adminPanel = document.querySelector('#adminPanel');
+const refreshAdmin = document.querySelector('#refreshAdmin');
+const adminStats = document.querySelector('#adminStats');
+const adminUsers = document.querySelector('#adminUsers');
+const adminTelemetry = document.querySelector('#adminTelemetry');
+const adminEvents = document.querySelector('#adminEvents');
+const adminBlocks = document.querySelector('#adminBlocks');
+const adminBlockForm = document.querySelector('#adminBlockForm');
+const adminMessage = document.querySelector('#adminMessage');
 const editorForm = document.querySelector('#editorForm');
 const editButton = document.querySelector('#editButton');
 const editStatus = document.querySelector('#editStatus');
@@ -49,20 +59,30 @@ const legalAccept = document.querySelector('#legalAccept');
 const workbenchHead = document.querySelector('.workbench-head');
 const assurancePanel = document.querySelector('.assurance-panel');
 const legalPreview = document.querySelector('.legal-preview');
+const passwordToggles = Array.from(document.querySelectorAll('[data-password-toggle]'));
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let currentFile = null;
 let latestResult = null;
 let currentUser = null;
 let currentSessionId = '';
+let motionPaused = document.visibilityState === 'hidden';
 
 function canAnimate() {
-  return !prefersReducedMotion.matches;
+  return !prefersReducedMotion.matches && !motionPaused;
 }
 
 function playMotion(target, params) {
   if (!canAnimate() || !target) return null;
   return animate(target, params);
+}
+
+document.addEventListener('visibilitychange', () => {
+  motionPaused = document.visibilityState === 'hidden';
+});
+
+if (!prefersReducedMotion.matches) {
+  document.documentElement.classList.add('motion-ready');
 }
 
 function animatePageIntro() {
@@ -100,6 +120,35 @@ function animatePageIntro() {
     delay: 430,
     ease: spring({ bounce: 0.38, duration: 900 })
   });
+}
+
+function setupScrollReveals() {
+  if (!canAnimate() || !('IntersectionObserver' in window)) return;
+  const targets = Array.from(document.querySelectorAll([
+    '.metadata-workflow',
+    '.assurance-panel',
+    '.account-panel',
+    '.admin-panel',
+    '.results-section',
+    '.legal-footer'
+  ].join(',')));
+  targets.forEach((target) => target.classList.add('reveal-on-scroll'));
+
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add('is-visible');
+      playMotion(entry.target, {
+        opacity: [0, 1],
+        translateY: [18, 0],
+        duration: 440,
+        ease: 'outCubic'
+      });
+      observer.unobserve(entry.target);
+    }
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.16 });
+
+  targets.forEach((target) => observer.observe(target));
 }
 
 function readLegalAcknowledgement() {
@@ -268,6 +317,19 @@ function setStatus(message, tone = 'neutral') {
 function setAuthMessage(message, tone = '') {
   authMessage.textContent = message || '';
   authMessage.className = tone ? `auth-message ${tone}` : 'auth-message';
+}
+
+function setAdminMessage(message, tone = '') {
+  if (!adminMessage) return;
+  adminMessage.textContent = message || '';
+  adminMessage.className = tone ? `auth-message ${tone}` : 'auth-message';
+}
+
+function setFormBusy(form, isBusy) {
+  form?.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+  form?.querySelectorAll('button, input, select, textarea').forEach((control) => {
+    control.disabled = isBusy;
+  });
 }
 
 function setEditStatus(message, tone = 'neutral') {
@@ -558,9 +620,20 @@ function setAuthMode(mode) {
   const register = mode === 'register';
   loginTab.classList.toggle('active', !register);
   registerTab.classList.toggle('active', register);
+  loginTab.setAttribute('aria-selected', register ? 'false' : 'true');
+  registerTab.setAttribute('aria-selected', register ? 'true' : 'false');
   loginForm.hidden = register;
   registerForm.hidden = !register;
+  document.querySelector('#authTitle').textContent = register ? 'Crear cuenta privada' : 'Entrar a la cuenta';
   setAuthMessage('');
+  const activeForm = register ? registerForm : loginForm;
+  playMotion(activeForm.querySelectorAll('.auth-field, .primary-button, .form-note'), {
+    opacity: [0, 1],
+    translateY: [8, 0],
+    delay: stagger(38),
+    duration: 260,
+    ease: 'outCubic'
+  });
 }
 
 function openAuth(mode = 'login') {
@@ -568,6 +641,20 @@ function openAuth(mode = 'login') {
   authModal.hidden = false;
   document.body.classList.add('modal-open');
   const focusTarget = mode === 'register' ? document.querySelector('#registerUsername') : document.querySelector('#loginEmail');
+  playMotion(authModal.querySelector('.auth-panel'), {
+    opacity: [0, 1],
+    translateY: [18, 0],
+    scale: [0.98, 1],
+    duration: 360,
+    ease: 'outCubic'
+  });
+  playMotion(authModal.querySelectorAll('.auth-aside > *, .auth-box > *'), {
+    opacity: [0, 1],
+    translateY: [14, 0],
+    delay: stagger(45),
+    duration: 420,
+    ease: 'outCubic'
+  });
   setTimeout(() => focusTarget?.focus(), 40);
 }
 
@@ -576,14 +663,32 @@ function closeAuth() {
   document.body.classList.remove('modal-open');
 }
 
+function setupPasswordToggles() {
+  passwordToggles.forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = document.querySelector(`#${button.dataset.passwordToggle}`);
+      if (!input) return;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.textContent = show ? 'Ocultar' : 'Ver';
+      button.setAttribute('aria-label', show ? 'Ocultar contrasena' : 'Mostrar contrasena');
+      button.setAttribute('aria-pressed', show ? 'true' : 'false');
+      input.focus();
+    });
+  });
+}
+
 function renderAuthState(user) {
   currentUser = user || null;
   authOpen.hidden = Boolean(currentUser);
   sessionUser.hidden = !currentUser;
   accountButton.hidden = !currentUser;
+  adminButton.hidden = currentUser?.role !== 'admin';
   if (sessionUser) sessionUser.textContent = currentUser ? currentUser.username : '';
+  if (currentUser?.role !== 'admin') adminPanel.hidden = true;
   if (!currentUser) {
     accountPanel.hidden = true;
+    adminPanel.hidden = true;
     accountHistory.innerHTML = '';
     sessionsList.innerHTML = '';
   }
@@ -651,6 +756,126 @@ async function loadAccount() {
     ...session,
     current: session.current || session.id === currentSessionId
   })));
+}
+
+function renderAdminStats(stats = {}) {
+  const cards = [
+    ['Usuarios', stats.users ?? 0],
+    ['Analisis', stats.analyses ?? 0],
+    ['Visitas 24h', stats.visits_today ?? 0],
+    ['Sesiones activas', stats.active_sessions ?? 0],
+    ['Bloqueos', stats.active_blocks ?? 0]
+  ];
+  adminStats.innerHTML = cards.map(([label, value]) => `
+    <article class="summary-card">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>
+  `).join('');
+}
+
+function renderAdminUsers(items = []) {
+  if (!items.length) {
+    adminUsers.innerHTML = '<p class="muted">Sin usuarios registrados.</p>';
+    return;
+  }
+  adminUsers.innerHTML = items.map((user) => `
+    <article class="admin-item">
+      <div>
+        <strong>${escapeHtml(user.username || 'usuario')}</strong>
+        <span>${escapeHtml(user.role || 'user')}</span>
+      </div>
+      <p>${escapeHtml(user.email || '')}</p>
+      <small>IP inicial: ${escapeHtml(user.created_ip || 'no disponible')} · Analisis: ${escapeHtml(user.analysis_count ?? 0)} · Sesiones: ${escapeHtml(user.active_sessions ?? 0)}</small>
+      <small>Ultima actividad: ${escapeHtml(formatDate(user.last_activity))}</small>
+    </article>
+  `).join('');
+}
+
+function renderAdminTelemetry(items = []) {
+  if (!items.length) {
+    adminTelemetry.innerHTML = '<p class="muted">Sin telemetria registrada todavia.</p>';
+    return;
+  }
+  adminTelemetry.innerHTML = items.map((item) => `
+    <article class="admin-item">
+      <div>
+        <strong>${escapeHtml(item.ip || 'IP no disponible')}</strong>
+        <span>${escapeHtml(formatDate(item.created_at))}</span>
+      </div>
+      <p>${escapeHtml(`${item.method || 'GET'} ${item.path || '/'}`)}</p>
+      <small>${escapeHtml(item.device_label || [item.browser, item.os, item.device_type].filter(Boolean).join(' · ') || 'Dispositivo')}</small>
+      <small>${escapeHtml([item.username || item.email || 'visitante', item.cf_country ? `Pais proxy: ${item.cf_country}` : '', item.accept_language || ''].filter(Boolean).join(' · '))}</small>
+      <small>${escapeHtml(item.user_agent || 'User-agent no disponible')}</small>
+    </article>
+  `).join('');
+}
+
+function renderAdminEvents(items = []) {
+  if (!items.length) {
+    adminEvents.innerHTML = '<p class="muted">Sin eventos registrados.</p>';
+    return;
+  }
+  adminEvents.innerHTML = items.map((event) => `
+    <article class="admin-item">
+      <div>
+        <strong>${escapeHtml(event.event_type || 'evento')}</strong>
+        <span>${escapeHtml(formatDate(event.created_at))}</span>
+      </div>
+      <p>${escapeHtml([event.username || event.email || 'usuario anonimo', event.entity_type, event.entity_id].filter(Boolean).join(' · '))}</p>
+      <small>IP: ${escapeHtml(event.ip || 'no disponible')}</small>
+      <small>${escapeHtml(JSON.stringify(event.details || {}))}</small>
+    </article>
+  `).join('');
+}
+
+function renderAdminBlocks(items = []) {
+  if (!items.length) {
+    adminBlocks.innerHTML = '<p class="muted">No hay bloqueos activos.</p>';
+    return;
+  }
+  adminBlocks.innerHTML = items.map((block) => `
+    <article class="admin-item">
+      <div>
+        <strong>${escapeHtml(block.block_type || 'bloqueo')}: ${escapeHtml(block.value || '')}</strong>
+        <span>${escapeHtml(formatDate(block.created_at))}</span>
+      </div>
+      <p>${escapeHtml(block.reason || 'Sin motivo registrado')}</p>
+      <small>Creado por: ${escapeHtml(block.created_by_username || 'admin')}</small>
+      <button class="secondary-button compact revoke-block" type="button" data-block="${escapeHtml(block.id)}">Quitar bloqueo</button>
+    </article>
+  `).join('');
+  adminBlocks.querySelectorAll('.revoke-block').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.getAttribute('data-block');
+      if (!id) return;
+      button.disabled = true;
+      await apiJson(`/api/admin/blocks/${encodeURIComponent(id)}/revoke`);
+      await loadAdmin();
+    });
+  });
+}
+
+function renderAdmin(data) {
+  renderAdminStats(data.stats || {});
+  renderAdminUsers(data.users || []);
+  renderAdminTelemetry(data.telemetry || []);
+  renderAdminEvents(data.events || []);
+  renderAdminBlocks(data.blocks || []);
+}
+
+async function loadAdmin() {
+  if (currentUser?.role !== 'admin') return;
+  setAdminMessage('Cargando panel administrativo...');
+  try {
+    const response = await fetch('/api/admin/overview', { credentials: 'same-origin' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'No se pudo cargar el panel admin.');
+    renderAdmin(data);
+    setAdminMessage('Panel actualizado.', 'ok');
+  } catch (error) {
+    setAdminMessage(error.message || 'No se pudo cargar el panel admin.', 'error');
+  }
 }
 
 fileInput.addEventListener('change', () => {
@@ -777,6 +1002,7 @@ authModal.querySelectorAll('[data-auth-close]').forEach((button) => button.addEv
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(loginForm);
+  setFormBusy(loginForm, true);
   setAuthMessage('Validando...');
   try {
     const data = await apiJson('/api/auth/login', {
@@ -789,12 +1015,15 @@ loginForm.addEventListener('submit', async (event) => {
     accountPanel.hidden = false;
   } catch (error) {
     setAuthMessage(error.message, 'error');
+  } finally {
+    setFormBusy(loginForm, false);
   }
 });
 
 registerForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(registerForm);
+  setFormBusy(registerForm, true);
   setAuthMessage('Creando cuenta...');
   try {
     const data = await apiJson('/api/auth/register', {
@@ -808,12 +1037,45 @@ registerForm.addEventListener('submit', async (event) => {
     accountPanel.hidden = false;
   } catch (error) {
     setAuthMessage(error.message, 'error');
+  } finally {
+    setFormBusy(registerForm, false);
   }
 });
 
 accountButton.addEventListener('click', async () => {
   accountPanel.hidden = !accountPanel.hidden;
   if (!accountPanel.hidden) await loadAccount();
+});
+
+adminButton?.addEventListener('click', async () => {
+  adminPanel.hidden = !adminPanel.hidden;
+  if (!adminPanel.hidden) {
+    await loadAdmin();
+    window.scrollTo({ top: Math.max(0, adminPanel.offsetTop - 18), behavior: 'auto' });
+  }
+});
+
+refreshAdmin?.addEventListener('click', loadAdmin);
+
+adminBlockForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(adminBlockForm);
+  setFormBusy(adminBlockForm, true);
+  setAdminMessage('Creando bloqueo...');
+  try {
+    await apiJson('/api/admin/blocks', {
+      blockType: form.get('blockType'),
+      value: form.get('value'),
+      reason: form.get('reason')
+    });
+    adminBlockForm.reset();
+    await loadAdmin();
+    setAdminMessage('Bloqueo creado.', 'ok');
+  } catch (error) {
+    setAdminMessage(error.message || 'No se pudo crear el bloqueo.', 'error');
+  } finally {
+    setFormBusy(adminBlockForm, false);
+  }
 });
 
 logoutButton.addEventListener('click', async () => {
@@ -844,6 +1106,8 @@ legalNotice?.addEventListener('keydown', (event) => {
   }
 });
 
+setupPasswordToggles();
+setupScrollReveals();
 animatePageIntro();
 loadMe().catch(() => renderAuthState(null));
 openLegalNotice();
