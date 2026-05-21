@@ -1,3 +1,5 @@
+import { animate, spring, stagger } from './vendor/anime.esm.min.js';
+
 const MAX_FILE_BYTES = 1024 * 1024 * 1024;
 const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno.';
 
@@ -41,11 +43,130 @@ const editButton = document.querySelector('#editButton');
 const editStatus = document.querySelector('#editStatus');
 const clearMetadataFields = document.querySelector('#clearMetadataFields');
 const metadataFields = Array.from(document.querySelectorAll('[data-metadata-field]'));
+const workbenchHead = document.querySelector('.workbench-head');
+const assurancePanel = document.querySelector('.assurance-panel');
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let currentFile = null;
 let latestResult = null;
 let currentUser = null;
 let currentSessionId = '';
+
+function canAnimate() {
+  return !prefersReducedMotion.matches;
+}
+
+function playMotion(target, params) {
+  if (!canAnimate() || !target) return null;
+  return animate(target, params);
+}
+
+function animatePageIntro() {
+  if (!canAnimate()) return;
+  const entranceTargets = [
+    document.querySelector('.topbar'),
+    ...document.querySelectorAll('.intro > *'),
+    workbenchHead,
+    uploadForm,
+    editorForm,
+    assurancePanel
+  ].filter(Boolean);
+
+  playMotion(entranceTargets, {
+    opacity: [0, 1],
+    translateY: [24, 0],
+    delay: stagger(70),
+    duration: 720,
+    ease: 'outCubic'
+  });
+
+  playMotion(dropZone, {
+    scale: [0.96, 1],
+    duration: 920,
+    delay: 340,
+    ease: spring({ bounce: 0.22, duration: 920 })
+  });
+
+  playMotion('.drop-mark', {
+    opacity: [0, 1],
+    scale: [0.7, 1],
+    rotate: [-8, 0],
+    duration: 900,
+    delay: 430,
+    ease: spring({ bounce: 0.38, duration: 900 })
+  });
+}
+
+function animateDropPulse() {
+  playMotion(dropZone, {
+    scale: [1, 1.018, 1],
+    duration: 560,
+    ease: 'outCubic'
+  });
+}
+
+function animateFileSelected() {
+  playMotion(selectedFileBox, {
+    opacity: [0, 1],
+    translateY: [12, 0],
+    duration: 420,
+    ease: 'outCubic'
+  });
+  playMotion('.drop-mark', {
+    scale: [1, 1.1, 1],
+    rotate: [0, 4, 0],
+    duration: 560,
+    ease: spring({ bounce: 0.34, duration: 560 })
+  });
+  playMotion([analyzeButton, clearButton], {
+    translateY: [8, 0],
+    opacity: [0.7, 1],
+    delay: stagger(45),
+    duration: 320,
+    ease: 'outCubic'
+  });
+}
+
+function animateFileError() {
+  playMotion(dropZone, {
+    translateX: [0, -10, 8, -5, 0],
+    duration: 420,
+    ease: 'inOutQuad'
+  });
+}
+
+function animateStatusLine(element) {
+  playMotion(element, {
+    opacity: [0.45, 1],
+    translateY: [5, 0],
+    duration: 240,
+    ease: 'outCubic'
+  });
+}
+
+function animateResultsIn() {
+  playMotion(resultsSection, {
+    opacity: [0, 1],
+    translateY: [18, 0],
+    duration: 520,
+    ease: 'outCubic'
+  });
+  playMotion([...summaryCards.children, ...resultsSection.querySelectorAll('.detail-panel')], {
+    opacity: [0, 1],
+    translateY: [18, 0],
+    delay: stagger(55),
+    duration: 520,
+    ease: 'outCubic'
+  });
+}
+
+function animateEditorReady() {
+  playMotion(editButton, {
+    scale: [1, 1.018, 1],
+    duration: 420,
+    ease: 'outCubic'
+  });
+}
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B';
@@ -79,6 +200,7 @@ function escapeHtml(value) {
 function setStatus(message, tone = 'neutral') {
   statusLine.textContent = message;
   statusLine.className = `status-line ${tone}`;
+  animateStatusLine(statusLine);
 }
 
 function setAuthMessage(message, tone = '') {
@@ -89,6 +211,7 @@ function setAuthMessage(message, tone = '') {
 function setEditStatus(message, tone = 'neutral') {
   editStatus.textContent = message;
   editStatus.className = `status-line ${tone}`;
+  animateStatusLine(editStatus);
 }
 
 function hasMetadataValues() {
@@ -100,7 +223,9 @@ function canUseCurrentFile() {
 }
 
 function updateEditorState(isBusy = false) {
+  const wasDisabled = editButton.disabled;
   editButton.disabled = isBusy || !canUseCurrentFile() || !hasMetadataValues();
+  if (wasDisabled && !editButton.disabled) animateEditorReady();
 }
 
 function setProgress(percent) {
@@ -165,6 +290,7 @@ function selectFile(file) {
     setStatus(LIMIT_MESSAGE, 'error');
     setEditStatus(LIMIT_MESSAGE, 'error');
     updateEditorState();
+    animateFileError();
     return;
   }
 
@@ -173,6 +299,7 @@ function selectFile(file) {
   updateEditorState();
   setEditStatus('Archivo listo para recibir metadata nueva.', 'ok');
   setStatus('Archivo listo para analizar', 'ok');
+  animateFileSelected();
 }
 
 function createSummaryCard(label, value) {
@@ -258,6 +385,7 @@ function renderResult(result) {
   ]);
 
   rawJson.textContent = JSON.stringify(result, null, 2);
+  animateResultsIn();
 }
 
 async function apiJson(url, body = null, method = 'POST') {
@@ -478,6 +606,7 @@ for (const eventName of ['dragenter', 'dragover']) {
   dropZone.addEventListener(eventName, (event) => {
     event.preventDefault();
     dropZone.classList.add('is-dragging');
+    animateDropPulse();
   });
 }
 
@@ -560,6 +689,11 @@ editorForm.addEventListener('submit', async (event) => {
     triggerDownload(blob, filename);
     setEditStatus('Archivo actualizado entregado. No se guardo una copia.', 'ok');
     setStatus('Metadata editada correctamente', 'ok');
+    playMotion(editorForm, {
+      scale: [1, 1.006, 1],
+      duration: 520,
+      ease: 'outCubic'
+    });
   } catch (error) {
     setEditStatus(error.message || 'No se pudo editar la metadata.', 'error');
   } finally {
@@ -631,4 +765,5 @@ logoutOthers.addEventListener('click', async () => {
   await loadAccount();
 });
 
+animatePageIntro();
 loadMe().catch(() => renderAuthState(null));

@@ -232,8 +232,8 @@ h1 {
 
 .tool-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.18fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -259,9 +259,14 @@ h1 {
   border-radius: var(--radius-xl);
 }
 
+.upload-panel {
+  padding: 22px;
+}
+
 .panel-kicker {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   color: var(--text-soft);
   font-size: 13px;
@@ -281,21 +286,27 @@ h1 {
 
 .drop-zone {
   position: relative;
-  min-height: 238px;
+  width: min(100%, 980px);
+  min-height: clamp(320px, 38vw, 430px);
+  justify-self: center;
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 12px;
-  padding: 24px;
-  border: 1px dashed rgba(142, 220, 255, 0.58);
-  border-radius: 24px;
+  gap: 18px;
+  padding: clamp(28px, 4vw, 52px);
+  border: 1px dashed rgba(142, 220, 255, 0.7);
+  border-radius: 30px;
   color: var(--text);
   text-align: center;
   cursor: pointer;
   background:
-    linear-gradient(145deg, rgba(20, 91, 209, 0.2), rgba(4, 8, 16, 0.54)),
-    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 16px);
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+    radial-gradient(circle at 50% 18%, rgba(56, 213, 255, 0.22), transparent 36%),
+    linear-gradient(145deg, rgba(20, 91, 209, 0.28), rgba(4, 8, 16, 0.62)),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 16px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 70px rgba(20, 91, 209, 0.18);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .drop-zone:hover,
@@ -308,6 +319,9 @@ h1 {
 
 .drop-zone.has-file {
   border-color: rgba(46, 214, 163, 0.76);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 28px 78px rgba(46, 214, 163, 0.18);
 }
 
 .drop-zone.has-error {
@@ -323,13 +337,15 @@ h1 {
 
 .drop-mark {
   position: relative;
-  width: 72px;
-  height: 72px;
-  border-radius: 24px;
+  width: clamp(96px, 9vw, 124px);
+  height: clamp(96px, 9vw, 124px);
+  border-radius: 34px;
   background:
     linear-gradient(135deg, var(--violet), var(--blue) 58%, var(--cyan)),
     var(--blue);
-  box-shadow: 0 18px 42px rgba(47, 140, 255, 0.34);
+  box-shadow:
+    0 24px 52px rgba(47, 140, 255, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
 }
 
 .drop-mark::before,
@@ -339,35 +355,42 @@ h1 {
 }
 
 .drop-mark::before {
-  width: 28px;
-  height: 34px;
-  left: 22px;
-  top: 17px;
-  border: 2px solid rgba(255, 255, 255, 0.92);
-  border-radius: 8px;
+  width: 38%;
+  height: 47%;
+  left: 31%;
+  top: 22%;
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  border-radius: 12px;
 }
 
 .drop-mark::after {
-  width: 16px;
-  height: 2px;
-  left: 29px;
-  top: 41px;
+  width: 22%;
+  height: 3px;
+  left: 39%;
+  top: 58%;
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 -8px 0 rgba(255, 255, 255, 0.92);
+  box-shadow: 0 -12px 0 rgba(255, 255, 255, 0.92);
 }
 
 .drop-title {
-  font-size: 22px;
+  max-width: 720px;
+  font-size: clamp(30px, 4.2vw, 56px);
+  line-height: 1.02;
   font-weight: 950;
+  text-wrap: balance;
 }
 
 .drop-copy {
+  max-width: 520px;
   color: var(--text-soft);
+  font-size: clamp(16px, 1.55vw, 20px);
   line-height: 1.45;
 }
 
 .selected-file {
   min-width: 0;
+  width: min(100%, 980px);
+  justify-self: center;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
@@ -408,9 +431,21 @@ h1 {
 }
 
 .action-row {
+  width: min(100%, 980px);
+  justify-self: center;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.editor-panel .action-row {
+  width: 100%;
+}
+
+.progress-wrap,
+.upload-panel > .status-line {
+  width: min(100%, 980px);
+  justify-self: center;
 }
 
 .primary-button,
@@ -575,6 +610,11 @@ button:disabled {
 
 .editor-actions {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.editor-panel {
+  width: min(100%, 1120px);
+  justify-self: center;
 }
 
 .assurance-panel {
@@ -943,12 +983,13 @@ pre {
   }
 
   .drop-zone {
-    min-height: 220px;
+    min-height: 310px;
     padding: 20px 16px;
+    border-radius: 24px;
   }
 
   .drop-title {
-    font-size: 19px;
+    font-size: 34px;
   }
 
   .selected-file,

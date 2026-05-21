@@ -37,6 +37,7 @@ Screenshots can be added here after a public visual pass:
 - ExifTool for writing supported metadata fields
 - PostgreSQL for metadata analysis records
 - PBKDF2 password hashing and database-backed session tokens
+- Anime.js for focused interface motion and file-selection feedback
 - HTML, CSS, and JavaScript frontend
 - Apache reverse proxy and systemd deployment files included as sanitized examples
 

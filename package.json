@@ -9,6 +9,7 @@
     "check": "node --check server.js && node --check public/app.js"
   },
   "dependencies": {
+    "animejs": "^4.4.1",
     "busboy": "^1.6.0",
     "pg": "^8.13.1"
   },
