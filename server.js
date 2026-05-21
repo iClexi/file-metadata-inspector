@@ -1,7 +1,11 @@
 import { createHmac, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, extname, join, normalize } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import Busboy from 'busboy';
 import { Pool } from 'pg';
 
@@ -18,7 +22,16 @@ const MAX_JSON_BYTES = 64 * 1024;
 const AUTH_COOKIE = 'metadata_session';
 const SESSION_TTL_SECONDS = Math.max(3600, parsePositiveInt(process.env.METADATA_SESSION_TTL_SECONDS, 30 * 24 * 60 * 60));
 const PASSWORD_ITERATIONS = Math.max(120_000, parsePositiveInt(process.env.METADATA_PASSWORD_ITERATIONS, 210_000));
-const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno para extraer sus metadatos.';
+const EXIFTOOL_BIN = process.env.METADATA_EXIFTOOL_BIN || 'exiftool';
+const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno para trabajar sus metadatos.';
+const EDITABLE_METADATA_FIELDS = {
+  title: { tag: 'Title', label: 'Titulo', maxLength: 180 },
+  description: { tag: 'Description', label: 'Descripcion', maxLength: 1000 },
+  author: { tag: 'Author', label: 'Autor', maxLength: 180 },
+  copyright: { tag: 'Copyright', label: 'Copyright', maxLength: 240 },
+  keywords: { tag: 'Keywords', label: 'Palabras clave', maxLength: 500 },
+  comment: { tag: 'Comment', label: 'Comentario', maxLength: 500 }
+};
 
 const pool = DATABASE_URL
   ? new Pool({ connectionString: DATABASE_URL, max: 6, idleTimeoutMillis: 20_000 })
@@ -156,6 +169,59 @@ function sanitizeMime(mimeType) {
 function getFileExtension(filename) {
   const extension = extname(filename || '').toLowerCase();
   return extension && extension.length <= 24 ? extension : '';
+}
+
+function editedDownloadName(filename) {
+  const safeName = sanitizeFilename(filename);
+  const extension = extname(safeName);
+  const stem = extension ? safeName.slice(0, -extension.length) : safeName;
+  return `${stem || 'archivo'}.metadata${extension || ''}`;
+}
+
+function contentDisposition(filename) {
+  const asciiName = sanitizeFilename(filename)
+    .replace(/[^\x20-\x7e]/g, '_')
+    .replace(/["\\]/g, '_');
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+function cleanMetadataValue(value, field) {
+  const text = String(value ?? '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+  if (text.length > field.maxLength) {
+    throw new RequestError(400, `${field.label} supera el limite de ${field.maxLength} caracteres.`);
+  }
+  return text;
+}
+
+function sanitizeMetadataEdits(rawValue) {
+  let payload;
+  try {
+    payload = JSON.parse(String(rawValue || '{}'));
+  } catch {
+    throw new RequestError(400, 'La metadata enviada no es JSON valido.');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new RequestError(400, 'La metadata debe enviarse como objeto JSON.');
+  }
+
+  const allowedKeys = new Set(Object.keys(EDITABLE_METADATA_FIELDS));
+  const unknownKeys = Object.keys(payload).filter((key) => !allowedKeys.has(key));
+  if (unknownKeys.length) {
+    throw new RequestError(400, 'El formulario incluye campos de metadata no permitidos.');
+  }
+
+  const edits = {};
+  for (const [key, field] of Object.entries(EDITABLE_METADATA_FIELDS)) {
+    const value = cleanMetadataValue(payload[key], field);
+    if (value) edits[key] = value;
+  }
+  if (!Object.keys(edits).length) {
+    throw new RequestError(400, 'Completa al menos un campo de metadata para crear el archivo actualizado.');
+  }
+  return edits;
 }
 
 function formatBytes(bytes) {
@@ -469,6 +535,161 @@ async function parseFileUpload(req) {
   });
 }
 
+async function parseFileEditUpload(req) {
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) {
+    throw new RequestError(415, 'La solicitud debe enviar un archivo usando multipart/form-data.');
+  }
+
+  const contentLength = getContentLength(req);
+  if (contentLength && contentLength > MAX_FILE_BYTES + MULTIPART_OVERHEAD_BYTES) {
+    throw new RequestError(413, LIMIT_MESSAGE);
+  }
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'metadata-edit-'));
+  const inputPath = join(tempDir, 'upload.bin');
+
+  try {
+    const parsed = await new Promise((resolve, reject) => {
+      let settled = false;
+      let fileSeen = false;
+      let metadataSeen = false;
+      let originalName = 'unnamed-file';
+      let declaredMimeType = 'application/octet-stream';
+      let sizeBytes = 0;
+      let metadataRaw = '';
+      let writeDone = Promise.resolve();
+      let writeStream = null;
+
+      function fail(error) {
+        if (settled) return;
+        settled = true;
+        writeDone.catch(() => {});
+        writeStream?.destroy();
+        req.unpipe(busboy);
+        req.resume();
+        reject(error);
+      }
+
+      const busboy = Busboy({
+        headers: req.headers,
+        limits: {
+          files: 1,
+          fields: 1,
+          parts: 3,
+          fileSize: MAX_FILE_BYTES,
+          fieldSize: MAX_JSON_BYTES
+        }
+      });
+
+      busboy.on('file', (_fieldname, file, info) => {
+        if (fileSeen) {
+          file.resume();
+          fail(new RequestError(400, 'Solo se permite un archivo por edicion.'));
+          return;
+        }
+
+        fileSeen = true;
+        originalName = sanitizeFilename(info.filename);
+        declaredMimeType = sanitizeMime(info.mimeType);
+        writeStream = createWriteStream(inputPath, { flags: 'wx' });
+        writeDone = new Promise((resolveWrite, rejectWrite) => {
+          writeStream.on('finish', resolveWrite);
+          writeStream.on('error', rejectWrite);
+        });
+
+        file.on('data', (chunk) => {
+          sizeBytes += chunk.length;
+          if (sizeBytes > MAX_FILE_BYTES) {
+            fail(new RequestError(413, LIMIT_MESSAGE));
+          }
+        });
+
+        file.on('limit', () => {
+          fail(new RequestError(413, LIMIT_MESSAGE));
+        });
+
+        file.on('error', (error) => {
+          fail(error);
+        });
+
+        file.pipe(writeStream);
+      });
+
+      busboy.on('field', (fieldname, value, info = {}) => {
+        if (fieldname !== 'metadata') {
+          fail(new RequestError(400, 'El formulario solo permite el archivo y los campos de metadata.'));
+          return;
+        }
+        if (metadataSeen) {
+          fail(new RequestError(400, 'La metadata solo debe enviarse una vez.'));
+          return;
+        }
+        if (info.valueTruncated) {
+          fail(new RequestError(400, 'La metadata enviada es demasiado grande.'));
+          return;
+        }
+        metadataSeen = true;
+        metadataRaw = String(value || '');
+      });
+
+      busboy.on('filesLimit', () => {
+        fail(new RequestError(400, 'Solo se permite un archivo por edicion.'));
+      });
+
+      busboy.on('fieldsLimit', () => {
+        fail(new RequestError(400, 'El formulario solo permite un bloque de metadata.'));
+      });
+
+      busboy.on('partsLimit', () => {
+        fail(new RequestError(400, 'El formulario contiene demasiadas partes.'));
+      });
+
+      busboy.on('error', (error) => {
+        fail(error);
+      });
+
+      busboy.on('close', () => {
+        if (settled) return;
+        if (!fileSeen) {
+          fail(new RequestError(400, 'Selecciona un archivo para editar su metadata.'));
+          return;
+        }
+        settled = true;
+        resolve({
+          originalName,
+          extension: getFileExtension(originalName),
+          declaredMimeType,
+          sizeBytes,
+          metadataRaw,
+          writeDone
+        });
+      });
+
+      req.on('aborted', () => {
+        fail(new RequestError(400, 'La carga del archivo fue interrumpida.'));
+      });
+
+      req.pipe(busboy);
+    });
+
+    await parsed.writeDone;
+    const edits = sanitizeMetadataEdits(parsed.metadataRaw);
+    return {
+      tempDir,
+      inputPath,
+      originalName: parsed.originalName,
+      extension: parsed.extension,
+      declaredMimeType: parsed.declaredMimeType,
+      sizeBytes: parsed.sizeBytes,
+      edits
+    };
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 function readUInt24LE(buffer, offset) {
   return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
 }
@@ -743,6 +964,72 @@ async function analyzeFile(req, auth) {
   return saved;
 }
 
+function runExifTool(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(EXIFTOOL_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      if (stdout.length < 8192) stdout += chunk.toString('utf8').slice(0, 8192 - stdout.length);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      if (stderr.length < 8192) stderr += chunk.toString('utf8').slice(0, 8192 - stderr.length);
+    });
+
+    child.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        reject(new RequestError(503, 'El editor de metadata no esta disponible en este servidor.'));
+        return;
+      }
+      reject(error);
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      reject(new RequestError(422, 'No se pudo escribir metadata en este tipo de archivo. Prueba con una imagen, PDF u otro formato compatible.'));
+    });
+  });
+}
+
+async function handleEditMetadata(req, res, auth) {
+  const upload = await parseFileEditUpload(req);
+  try {
+    const args = ['-overwrite_original', '-P', '-codedcharacterset=utf8'];
+    for (const [key, value] of Object.entries(upload.edits)) {
+      args.push(`-${EDITABLE_METADATA_FIELDS[key].tag}=${value}`);
+    }
+    args.push(upload.inputPath);
+
+    await runExifTool(args);
+    const outputStats = await stat(upload.inputPath);
+    const downloadName = editedDownloadName(upload.originalName);
+
+    await logUserEvent(auth, req, 'file_metadata_edited', 'file_metadata_edit', '', {
+      extension: upload.extension || '',
+      mimeType: upload.declaredMimeType || '',
+      sizeBytes: upload.sizeBytes,
+      outputSizeBytes: outputStats.size,
+      fields: Object.keys(upload.edits)
+    });
+
+    res.writeHead(200, {
+      'Content-Type': upload.declaredMimeType || 'application/octet-stream',
+      'Content-Length': String(outputStats.size),
+      'Content-Disposition': contentDisposition(downloadName),
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff'
+    });
+    await pipeline(createReadStream(upload.inputPath), res);
+  } finally {
+    await rm(upload.tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function handleRegister(req, res) {
   requireAuthReady();
   const payload = await readJson(req);
@@ -903,6 +1190,7 @@ const server = createServer(async (req, res) => {
         mode: 'file-metadata',
         database,
         auth: pool && APP_SECRET.length >= 24 ? 'enabled' : 'disabled',
+        metadataEditor: EXIFTOOL_BIN,
         maxFileBytes: MAX_FILE_BYTES,
         time: new Date().toISOString()
       });
@@ -956,6 +1244,11 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/edit-metadata') {
+      await handleEditMetadata(req, res, auth);
+      return;
+    }
+
     if (req.method === 'GET') {
       await serveStatic(req, res);
       return;
@@ -975,6 +1268,10 @@ const server = createServer(async (req, res) => {
         return;
       }
       sendJson(res, 409, { ok: false, error: 'Ese dato ya existe.' });
+      return;
+    }
+    if (res.headersSent) {
+      res.destroy(error);
       return;
     }
     sendJson(res, status, { ok: false, error: error.message || 'Request failed' });

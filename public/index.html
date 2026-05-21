@@ -6,7 +6,7 @@
     <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
     <title>File Metadata Inspector</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260521-sessions">
+    <link rel="stylesheet" href="/styles.css?v=20260521-editor">
   </head>
   <body>
     <main class="page-shell">
@@ -34,40 +34,91 @@
           </div>
         </div>
 
-        <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
-          <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
-            <input id="fileInput" class="file-input" name="file" type="file">
-            <span class="drop-mark" aria-hidden="true"></span>
-            <span class="drop-title">Selecciona un archivo</span>
-            <span class="drop-copy">Arrastra aqui el archivo que quieres analizar</span>
-          </label>
+        <div class="tool-stack">
+          <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
+            <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
+              <input id="fileInput" class="file-input" name="file" type="file">
+              <span class="drop-mark" aria-hidden="true"></span>
+              <span class="drop-title">Selecciona un archivo</span>
+              <span class="drop-copy">Arrastra aqui el archivo que quieres analizar</span>
+            </label>
 
-          <div class="selected-file" id="selectedFile" hidden>
-            <div>
-              <span class="label">Archivo</span>
-              <strong id="selectedName">--</strong>
+            <div class="selected-file" id="selectedFile" hidden>
+              <div>
+                <span class="label">Archivo</span>
+                <strong id="selectedName">--</strong>
+              </div>
+              <span id="selectedSize">--</span>
             </div>
-            <span id="selectedSize">--</span>
-          </div>
 
-          <div class="action-row">
-            <button id="analyzeButton" class="primary-button" type="submit" disabled>
-              Extraer metadata
-            </button>
-            <button id="clearButton" class="secondary-button" type="button" disabled>
-              Limpiar
-            </button>
-          </div>
-
-          <div class="progress-wrap" id="progressWrap" hidden>
-            <div class="progress-track">
-              <span id="progressBar"></span>
+            <div class="action-row">
+              <button id="analyzeButton" class="primary-button" type="submit" disabled>
+                Extraer metadata
+              </button>
+              <button id="clearButton" class="secondary-button" type="button" disabled>
+                Limpiar
+              </button>
             </div>
-            <span id="progressText">0%</span>
-          </div>
 
-          <p id="statusLine" class="status-line neutral">Esperando archivo</p>
-        </form>
+            <div class="progress-wrap" id="progressWrap" hidden>
+              <div class="progress-track">
+                <span id="progressBar"></span>
+              </div>
+              <span id="progressText">0%</span>
+            </div>
+
+            <p id="statusLine" class="status-line neutral">Esperando archivo</p>
+          </form>
+
+          <form id="editorForm" class="editor-panel" autocomplete="off">
+            <div class="editor-head">
+              <div>
+                <p class="eyebrow">Editor de metadata</p>
+                <h2>Crear copia con metadata nueva</h2>
+              </div>
+              <span class="date-chip">Descarga directa</span>
+            </div>
+            <p class="editor-copy">Escribe campos comunes y recibe una copia actualizada. No se crea enlace publico ni se conserva el archivo.</p>
+
+            <div class="metadata-form-grid">
+              <label class="field-control" for="metaTitle">
+                <span>Titulo</span>
+                <input id="metaTitle" data-metadata-field="title" type="text" maxlength="180" placeholder="Titulo del archivo">
+              </label>
+              <label class="field-control" for="metaAuthor">
+                <span>Autor</span>
+                <input id="metaAuthor" data-metadata-field="author" type="text" maxlength="180" placeholder="Nombre del autor">
+              </label>
+              <label class="field-control" for="metaCopyright">
+                <span>Copyright</span>
+                <input id="metaCopyright" data-metadata-field="copyright" type="text" maxlength="240" placeholder="Aviso de derechos">
+              </label>
+              <label class="field-control" for="metaKeywords">
+                <span>Palabras clave</span>
+                <input id="metaKeywords" data-metadata-field="keywords" type="text" maxlength="500" placeholder="seguridad, archivo, metadata">
+              </label>
+              <label class="field-control wide" for="metaDescription">
+                <span>Descripcion</span>
+                <textarea id="metaDescription" data-metadata-field="description" maxlength="1000" rows="3" placeholder="Descripcion tecnica o contextual"></textarea>
+              </label>
+              <label class="field-control wide" for="metaComment">
+                <span>Comentario</span>
+                <textarea id="metaComment" data-metadata-field="comment" maxlength="500" rows="2" placeholder="Comentario breve para el archivo"></textarea>
+              </label>
+            </div>
+
+            <div class="action-row editor-actions">
+              <button id="editButton" class="primary-button" type="submit" disabled>
+                Descargar archivo actualizado
+              </button>
+              <button id="clearMetadataFields" class="secondary-button" type="button">
+                Limpiar campos
+              </button>
+            </div>
+
+            <p id="editStatus" class="status-line neutral">Selecciona un archivo valido y completa al menos un campo.</p>
+          </form>
+        </div>
 
         <aside class="assurance-panel" aria-label="Politica de analisis">
           <div>
@@ -194,6 +245,6 @@
       </div>
     </section>
 
-    <script src="/app.js?v=20260521-sessions" type="module"></script>
+    <script src="/app.js?v=20260521-editor" type="module"></script>
   </body>
 </html>

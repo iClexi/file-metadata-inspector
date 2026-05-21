@@ -5,9 +5,9 @@
 ![Security](https://img.shields.io/badge/Secure%20Uploads-1GB%20Limit-111827?style=for-the-badge)
 ![Portfolio](https://img.shields.io/badge/Portfolio-Demo-1877f2?style=for-the-badge)
 
-File Metadata Inspector is a portfolio-focused web application for extracting technical metadata from uploaded files. The interface is intentionally scoped to one task: receive a file, analyze safe technical details, and present the result in a clean, modern view.
+File Metadata Inspector is a portfolio-focused web application for extracting and editing technical metadata from uploaded files. The interface is intentionally scoped to one task: receive a file, analyze safe technical details, optionally write common metadata fields, and present or return the result without acting as file storage.
 
-This repository demonstrates UI design, streamed upload handling, backend validation, PostgreSQL persistence for analysis records, and careful handling of file metadata without turning the project into a file hosting or sharing platform.
+This repository demonstrates UI design, upload validation, backend file handling, PostgreSQL persistence for analysis records, direct metadata-edit downloads, and careful handling of file metadata without turning the project into a file hosting or sharing platform.
 
 ## Preview
 
@@ -22,6 +22,8 @@ Screenshots can be added here after a public visual pass:
 - File-only metadata extraction flow.
 - Frontend and backend validation for the 1 GB maximum file size.
 - Streamed upload processing so full files are not written to disk.
+- Direct metadata editing for common fields such as title, author, description, copyright, keywords, and comment.
+- Edited files are returned as direct downloads from a temporary server copy, without public links or permanent storage.
 - Technical metadata view for file name, size, extension, MIME type, analysis date, and type-specific details when detectable.
 - Optional account sessions with HttpOnly cookies, active-device review, and session revocation.
 - No public download links, shared URLs, or file hosting behavior.
@@ -32,6 +34,7 @@ Screenshots can be added here after a public visual pass:
 
 - Node.js native HTTP server
 - Busboy for streaming multipart file uploads
+- ExifTool for writing supported metadata fields
 - PostgreSQL for metadata analysis records
 - PBKDF2 password hashing and database-backed session tokens
 - HTML, CSS, and JavaScript frontend

@@ -36,6 +36,11 @@ const accountHistory = document.querySelector('#accountHistory');
 const sessionsList = document.querySelector('#sessionsList');
 const logoutButton = document.querySelector('#logoutButton');
 const logoutOthers = document.querySelector('#logoutOthers');
+const editorForm = document.querySelector('#editorForm');
+const editButton = document.querySelector('#editButton');
+const editStatus = document.querySelector('#editStatus');
+const clearMetadataFields = document.querySelector('#clearMetadataFields');
+const metadataFields = Array.from(document.querySelectorAll('[data-metadata-field]'));
 
 let currentFile = null;
 let latestResult = null;
@@ -81,6 +86,23 @@ function setAuthMessage(message, tone = '') {
   authMessage.className = tone ? `auth-message ${tone}` : 'auth-message';
 }
 
+function setEditStatus(message, tone = 'neutral') {
+  editStatus.textContent = message;
+  editStatus.className = `status-line ${tone}`;
+}
+
+function hasMetadataValues() {
+  return metadataFields.some((field) => field.value.trim().length > 0);
+}
+
+function canUseCurrentFile() {
+  return Boolean(currentFile) && currentFile.size <= MAX_FILE_BYTES;
+}
+
+function updateEditorState(isBusy = false) {
+  editButton.disabled = isBusy || !canUseCurrentFile() || !hasMetadataValues();
+}
+
 function setProgress(percent) {
   const value = Math.max(0, Math.min(100, Math.round(percent)));
   progressBar.style.width = `${value}%`;
@@ -91,6 +113,7 @@ function setBusy(isBusy) {
   uploadForm.classList.toggle('is-busy', isBusy);
   analyzeButton.disabled = isBusy || !currentFile || currentFile.size > MAX_FILE_BYTES;
   clearButton.disabled = isBusy || !currentFile;
+  updateEditorState(isBusy);
 }
 
 function resetResults() {
@@ -112,6 +135,9 @@ function resetFile() {
   progressWrap.hidden = true;
   setProgress(0);
   setStatus('Esperando archivo');
+  editorForm.reset();
+  setEditStatus('Selecciona un archivo valido y completa al menos un campo.');
+  updateEditorState();
   dropZone.classList.remove('has-file', 'has-error');
   resetResults();
 }
@@ -137,11 +163,15 @@ function selectFile(file) {
     analyzeButton.disabled = true;
     dropZone.classList.add('has-error');
     setStatus(LIMIT_MESSAGE, 'error');
+    setEditStatus(LIMIT_MESSAGE, 'error');
+    updateEditorState();
     return;
   }
 
   dropZone.classList.remove('has-error');
   analyzeButton.disabled = false;
+  updateEditorState();
+  setEditStatus('Archivo listo para recibir metadata nueva.', 'ok');
   setStatus('Archivo listo para analizar', 'ok');
 }
 
@@ -272,6 +302,66 @@ function uploadFile(file) {
     request.timeout = 0;
     request.send(formData);
   });
+}
+
+function collectMetadataEdits() {
+  const edits = {};
+  for (const field of metadataFields) {
+    const key = field.dataset.metadataField;
+    const value = field.value.trim();
+    if (key && value) edits[key] = value;
+  }
+  if (!Object.keys(edits).length) {
+    throw new Error('Completa al menos un campo de metadata.');
+  }
+  return edits;
+}
+
+function filenameFromDisposition(header) {
+  const value = String(header || '');
+  const encoded = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      return encoded[1];
+    }
+  }
+  const plain = value.match(/filename="([^"]+)"/i);
+  return plain?.[1] || 'metadata-actualizada';
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function editMetadataFile(file, edits) {
+  const formData = new FormData();
+  formData.append('metadata', JSON.stringify(edits));
+  formData.append('file', file);
+
+  const response = await fetch('/api/edit-metadata', {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: formData
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'No se pudo crear el archivo actualizado.');
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: filenameFromDisposition(response.headers.get('content-disposition'))
+  };
 }
 
 function setAuthMode(mode) {
@@ -433,6 +523,49 @@ uploadForm.addEventListener('submit', async (event) => {
 });
 
 clearButton.addEventListener('click', resetFile);
+
+metadataFields.forEach((field) => {
+  field.addEventListener('input', () => updateEditorState());
+});
+
+clearMetadataFields.addEventListener('click', () => {
+  editorForm.reset();
+  updateEditorState();
+  setEditStatus(canUseCurrentFile() ? 'Campos limpiados.' : 'Selecciona un archivo valido y completa al menos un campo.');
+});
+
+editorForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!currentFile) {
+    setEditStatus('Selecciona un archivo para editar su metadata.', 'error');
+    return;
+  }
+  if (currentFile.size > MAX_FILE_BYTES) {
+    setEditStatus(LIMIT_MESSAGE, 'error');
+    return;
+  }
+
+  let edits;
+  try {
+    edits = collectMetadataEdits();
+  } catch (error) {
+    setEditStatus(error.message, 'error');
+    return;
+  }
+
+  setBusy(true);
+  setEditStatus('Aplicando metadata y preparando descarga...');
+  try {
+    const { blob, filename } = await editMetadataFile(currentFile, edits);
+    triggerDownload(blob, filename);
+    setEditStatus('Archivo actualizado entregado. No se guardo una copia.', 'ok');
+    setStatus('Metadata editada correctamente', 'ok');
+  } catch (error) {
+    setEditStatus(error.message || 'No se pudo editar la metadata.', 'error');
+  } finally {
+    setBusy(false);
+  }
+});
 
 copyJson.addEventListener('click', async () => {
   if (!latestResult) return;
