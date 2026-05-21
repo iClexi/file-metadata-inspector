@@ -1,0 +1,18 @@
+{
+  "name": "file-metadata-inspector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Portfolio file metadata extraction interface with streamed upload handling.",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

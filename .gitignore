@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+node_modules/
+npm-debug.log*
+*.log
+coverage/
+dist/
+tmp/
+temp/
+.DS_Store
+playwright-report/
+test-results/
+output/

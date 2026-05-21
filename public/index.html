@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
+    <title>File Metadata Inspector</title>
+    <link rel="stylesheet" href="/styles.css?v=20260521-file">
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="workspace" aria-labelledby="pageTitle">
+        <div class="intro">
+          <p class="eyebrow">metadata.iclexi.tech</p>
+          <h1 id="pageTitle">Extractor de metadatos de archivos</h1>
+          <p class="lead">Carga un archivo, analiza su informacion tecnica y revisa el resultado sin crear enlaces publicos ni conservar el archivo.</p>
+        </div>
+
+        <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
+          <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
+            <input id="fileInput" class="file-input" name="file" type="file">
+            <span class="drop-mark" aria-hidden="true"></span>
+            <span class="drop-title">Selecciona un archivo</span>
+            <span class="drop-copy">Arrastra aqui el archivo que quieres analizar</span>
+          </label>
+
+          <div class="selected-file" id="selectedFile" hidden>
+            <div>
+              <span class="label">Archivo</span>
+              <strong id="selectedName">--</strong>
+            </div>
+            <span id="selectedSize">--</span>
+          </div>
+
+          <div class="action-row">
+            <button id="analyzeButton" class="primary-button" type="submit" disabled>
+              Extraer metadata
+            </button>
+            <button id="clearButton" class="secondary-button" type="button" disabled>
+              Limpiar
+            </button>
+          </div>
+
+          <div class="progress-wrap" id="progressWrap" hidden>
+            <div class="progress-track">
+              <span id="progressBar"></span>
+            </div>
+            <span id="progressText">0%</span>
+          </div>
+
+          <p id="statusLine" class="status-line neutral">Esperando archivo</p>
+        </form>
+
+        <aside class="assurance-panel" aria-label="Politica de analisis">
+          <div>
+            <span>Limite</span>
+            <strong>1 GB</strong>
+          </div>
+          <div>
+            <span>Archivo</span>
+            <strong>No persistente</strong>
+          </div>
+          <div>
+            <span>Salida</span>
+            <strong>Metadata tecnica</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section id="resultsSection" class="results-section" aria-live="polite" hidden>
+        <div class="results-heading">
+          <div>
+            <p class="eyebrow">Resultado</p>
+            <h2 id="resultTitle">Metadatos extraidos</h2>
+          </div>
+          <span id="analysisDate" class="date-chip">--</span>
+        </div>
+
+        <div id="summaryCards" class="summary-grid"></div>
+
+        <div class="detail-grid">
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Datos del archivo</h3>
+            </div>
+            <dl id="fileDetails" class="kv-list"></dl>
+          </article>
+
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Metadata detectada</h3>
+            </div>
+            <dl id="detectedDetails" class="kv-list"></dl>
+          </article>
+
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Seguridad</h3>
+            </div>
+            <dl id="safetyDetails" class="kv-list"></dl>
+          </article>
+
+          <article class="detail-panel raw-panel">
+            <div class="panel-head">
+              <h3>JSON tecnico</h3>
+              <button id="copyJson" class="secondary-button compact" type="button">Copiar</button>
+            </div>
+            <pre id="rawJson">{}</pre>
+          </article>
+        </div>
+      </section>
+    </main>
+    <script src="/app.js?v=20260521-file" type="module"></script>
+  </body>
+</html>
