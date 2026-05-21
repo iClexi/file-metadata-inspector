@@ -1,3 +1,4 @@
+import { createHmac, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, extname, join, normalize } from 'node:path';
@@ -6,17 +7,27 @@ import { Pool } from 'pg';
 
 const PORT = Number(process.env.METADATA_PORT || 8873);
 const DATABASE_URL = process.env.METADATA_DATABASE_URL || '';
+const APP_SECRET = process.env.METADATA_APP_SECRET || '';
 const PUBLIC_DIR = join(process.cwd(), 'public');
 const ONE_GIB = 1024 * 1024 * 1024;
 const MAX_FILE_BYTES = parsePositiveInt(process.env.METADATA_MAX_FILE_BYTES, ONE_GIB);
 const SAMPLE_BYTES = Math.min(parsePositiveInt(process.env.METADATA_SAMPLE_BYTES, 8 * 1024 * 1024), MAX_FILE_BYTES);
 const MULTIPART_OVERHEAD_BYTES = 2 * 1024 * 1024;
 const MAX_FILENAME_CHARS = 160;
+const MAX_JSON_BYTES = 64 * 1024;
+const AUTH_COOKIE = 'metadata_session';
+const SESSION_TTL_SECONDS = Math.max(3600, parsePositiveInt(process.env.METADATA_SESSION_TTL_SECONDS, 30 * 24 * 60 * 60));
+const PASSWORD_ITERATIONS = Math.max(120_000, parsePositiveInt(process.env.METADATA_PASSWORD_ITERATIONS, 210_000));
 const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno para extraer sus metadatos.';
 
 const pool = DATABASE_URL
   ? new Pool({ connectionString: DATABASE_URL, max: 6, idleTimeoutMillis: 20_000 })
   : null;
+
+if (pool && APP_SECRET.length < 24) {
+  console.error('METADATA_APP_SECRET is required and must be at least 24 characters.');
+  process.exit(1);
+}
 
 const staticMime = {
   '.html': 'text/html; charset=utf-8',
@@ -43,8 +54,58 @@ function parsePositiveInt(value, fallback) {
 async function initDb() {
   if (!pool) return;
   await pool.query(`
+    create table if not exists users (
+      id uuid primary key,
+      username text not null,
+      email text not null,
+      email_normalized text not null unique,
+      password_hash text not null,
+      password_salt text not null,
+      password_iterations integer not null default 210000,
+      role text not null default 'user',
+      created_ip text not null default '',
+      created_user_agent text not null default '',
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+
+    create unique index if not exists users_username_lower_idx on users (lower(username));
+    create index if not exists users_created_at_idx on users (created_at desc);
+
+    create table if not exists user_sessions (
+      id uuid primary key,
+      user_id uuid not null references users(id) on delete cascade,
+      token_hash text not null unique,
+      device_label text not null default '',
+      ip text not null default '',
+      user_agent text not null default '',
+      created_at timestamptz not null default now(),
+      last_seen_at timestamptz not null default now(),
+      expires_at timestamptz not null,
+      revoked_at timestamptz
+    );
+
+    create index if not exists user_sessions_user_id_idx on user_sessions (user_id, created_at desc);
+    create index if not exists user_sessions_token_hash_idx on user_sessions (token_hash);
+
+    create table if not exists user_events (
+      id bigserial primary key,
+      user_id uuid references users(id) on delete set null,
+      event_type text not null,
+      entity_type text not null default '',
+      entity_id text not null default '',
+      ip text not null default '',
+      user_agent text not null default '',
+      details jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now()
+    );
+
+    create index if not exists user_events_user_id_idx on user_events (user_id, created_at desc);
+    create index if not exists user_events_created_at_idx on user_events (created_at desc);
+
     create table if not exists file_metadata_analyses (
       id bigserial primary key,
+      user_id uuid references users(id) on delete set null,
       original_name text not null,
       extension text,
       mime_type text,
@@ -53,19 +114,26 @@ async function initDb() {
       created_at timestamptz not null default now()
     );
 
+    alter table file_metadata_analyses
+      add column if not exists user_id uuid references users(id) on delete set null;
+
     create index if not exists file_metadata_analyses_created_at_idx
       on file_metadata_analyses (created_at desc);
 
     create index if not exists file_metadata_analyses_mime_type_idx
       on file_metadata_analyses (mime_type);
+
+    create index if not exists file_metadata_analyses_user_id_idx
+      on file_metadata_analyses (user_id, created_at desc);
   `);
 }
 
-function sendJson(res, status, data) {
+function sendJson(res, status, data, headers = {}) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...headers
   });
   res.end(JSON.stringify(data));
 }
@@ -106,6 +174,189 @@ function getContentLength(req) {
   const raw = req.headers['content-length'];
   const parsed = Number.parseInt(Array.isArray(raw) ? raw[0] : raw || '', 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function hmac(value) {
+  return createHmac('sha256', APP_SECRET).update(value).digest('hex');
+}
+
+function sessionTokenHash(token) {
+  return hmac(`session:${token}`);
+}
+
+function parseCookies(header = '') {
+  const cookies = {};
+  for (const part of String(header || '').split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+}
+
+function clientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0]?.trim() || '';
+  return (xff || req.socket.remoteAddress || '').slice(0, 80);
+}
+
+function isSecureRequest(req) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0]?.trim().toLowerCase() || '';
+  return forwardedProto === 'https' || Boolean(req.headers['cf-ray']);
+}
+
+function setCookie(req, res, name, value, maxAge) {
+  const secure = isSecureRequest(req) ? '; Secure' : '';
+  res.setHeader('set-cookie', `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
+}
+
+function clearCookie(res, name) {
+  res.setHeader('set-cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase().slice(0, 160);
+}
+
+function cleanUsername(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+function validatePassword(value) {
+  const password = String(value || '');
+  if (password.length < 8) throw new RequestError(400, 'La contrasena debe tener al menos 8 caracteres.');
+  if (password.length > 200) throw new RequestError(400, 'La contrasena es demasiado larga.');
+  return password;
+}
+
+function passwordDigest(password, salt, iterations = PASSWORD_ITERATIONS) {
+  return pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
+}
+
+function hashPassword(password) {
+  const salt = randomBytes(18).toString('base64url');
+  return {
+    salt,
+    iterations: PASSWORD_ITERATIONS,
+    hash: passwordDigest(password, salt, PASSWORD_ITERATIONS)
+  };
+}
+
+function timingSafeStringEqual(a, b) {
+  const first = Buffer.from(String(a || ''), 'utf8');
+  const second = Buffer.from(String(b || ''), 'utf8');
+  if (first.length !== second.length) return false;
+  return timingSafeEqual(first, second);
+}
+
+function verifyPassword(password, user) {
+  const digest = passwordDigest(password, user.password_salt, Number(user.password_iterations || PASSWORD_ITERATIONS));
+  return timingSafeStringEqual(digest, user.password_hash);
+}
+
+function publicUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    username: row.username,
+    email: row.email,
+    role: row.role || 'user',
+    created_at: row.created_at
+  };
+}
+
+function describeUserAgent(userAgent = '') {
+  const ua = String(userAgent);
+  const lower = ua.toLowerCase();
+  const device = /ipad|tablet/.test(lower) ? 'tablet' : /mobi|android|iphone/.test(lower) ? 'mobile' : 'desktop';
+  const browser = /edg\//i.test(ua) ? 'Edge'
+    : /chrome|chromium|crios/i.test(ua) ? 'Chrome'
+      : /firefox|fxios/i.test(ua) ? 'Firefox'
+        : /safari/i.test(ua) ? 'Safari'
+          : 'Browser';
+  const os = /windows/i.test(ua) ? 'Windows'
+    : /android/i.test(ua) ? 'Android'
+      : /iphone|ipad|ios/i.test(ua) ? 'iOS'
+        : /mac os|macintosh/i.test(ua) ? 'macOS'
+          : /linux/i.test(ua) ? 'Linux'
+            : 'Sistema';
+  return `${browser} · ${os} · ${device}`;
+}
+
+async function readJson(req) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > MAX_JSON_BYTES) throw new RequestError(400, 'Solicitud demasiado grande.');
+    chunks.push(buffer);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new RequestError(400, 'JSON invalido.');
+  }
+}
+
+function requireAuthReady() {
+  if (!pool) throw new RequestError(503, 'La base de datos no esta disponible.');
+  if (APP_SECRET.length < 24) throw new RequestError(503, 'La sesion no esta configurada.');
+}
+
+async function createSession(req, res, user) {
+  requireAuthReady();
+  const token = randomBytes(32).toString('base64url');
+  const userAgent = String(req.headers['user-agent'] || '').slice(0, 700);
+  const sessionId = randomUUID();
+  await pool.query(
+    `insert into user_sessions (id, user_id, token_hash, device_label, ip, user_agent, expires_at)
+     values ($1, $2, $3, $4, $5, $6, now() + ($7::int * interval '1 second'))`,
+    [sessionId, user.id, sessionTokenHash(token), describeUserAgent(userAgent), clientIp(req), userAgent, SESSION_TTL_SECONDS]
+  );
+  setCookie(req, res, AUTH_COOKIE, token, SESSION_TTL_SECONDS);
+  return sessionId;
+}
+
+async function currentAuth(req) {
+  if (!pool || APP_SECRET.length < 24) return null;
+  const token = parseCookies(req.headers.cookie || '')[AUTH_COOKIE] || '';
+  if (!token) return null;
+  const { rows } = await pool.query(
+    `select s.id as session_id, s.created_at as session_created_at, s.last_seen_at, s.expires_at,
+            u.id, u.username, u.email, u.role, u.created_at
+     from user_sessions s
+     join users u on u.id = s.user_id
+     where s.token_hash = $1 and s.revoked_at is null and s.expires_at > now()
+     limit 1`,
+    [sessionTokenHash(token)]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  await pool.query(
+    'update user_sessions set last_seen_at = now(), ip = $2, user_agent = $3 where id = $1',
+    [row.session_id, clientIp(req), String(req.headers['user-agent'] || '').slice(0, 700)]
+  ).catch(() => {});
+  return { session_id: row.session_id, user: publicUser(row) };
+}
+
+async function logUserEvent(auth, req, eventType, entityType = '', entityId = '', details = {}) {
+  if (!pool || !auth?.user?.id) return;
+  await pool.query(
+    `insert into user_events (user_id, event_type, entity_type, entity_id, ip, user_agent, details)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      auth.user.id,
+      eventType,
+      entityType,
+      entityId,
+      clientIp(req),
+      String(req.headers['user-agent'] || '').slice(0, 700),
+      JSON.stringify(details)
+    ]
+  ).catch(() => {});
 }
 
 async function parseFileUpload(req) {
@@ -426,14 +677,15 @@ function classifyFile(upload) {
   };
 }
 
-async function saveAnalysis(result) {
+async function saveAnalysis(result, auth) {
   if (!pool) return result;
   const { rows } = await pool.query(
     `insert into file_metadata_analyses
-       (original_name, extension, mime_type, file_size_bytes, metadata, created_at)
-     values ($1, $2, $3, $4, $5, $6)
+       (user_id, original_name, extension, mime_type, file_size_bytes, metadata, created_at)
+     values ($1, $2, $3, $4, $5, $6, $7)
      returning id, created_at`,
     [
+      auth?.user?.id || null,
       result.originalName,
       result.extension || null,
       result.mimeType,
@@ -445,11 +697,12 @@ async function saveAnalysis(result) {
   return {
     ...result,
     id: rows[0].id,
-    analyzedAt: rows[0].created_at
+    analyzedAt: rows[0].created_at,
+    owned: Boolean(auth?.user?.id)
   };
 }
 
-async function analyzeFile(req) {
+async function analyzeFile(req, auth) {
   const upload = await parseFileUpload(req);
   const detected = classifyFile(upload);
   const analyzedAt = new Date().toISOString();
@@ -481,7 +734,135 @@ async function analyzeFile(req) {
     }
   };
 
-  return saveAnalysis(result);
+  const saved = await saveAnalysis(result, auth);
+  await logUserEvent(auth, req, 'file_analyzed', 'file_metadata_analysis', String(saved.id || ''), {
+    extension: saved.extension || '',
+    mimeType: saved.mimeType || '',
+    sizeBytes: saved.sizeBytes
+  });
+  return saved;
+}
+
+async function handleRegister(req, res) {
+  requireAuthReady();
+  const payload = await readJson(req);
+  const username = cleanUsername(payload.username);
+  const email = String(payload.email || '').trim().slice(0, 160);
+  const emailNormalized = normalizeEmail(email);
+  const password = validatePassword(payload.password);
+
+  if (username.length < 2) throw new RequestError(400, 'El usuario debe tener al menos 2 caracteres.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNormalized)) throw new RequestError(400, 'Email invalido.');
+
+  const digest = hashPassword(password);
+  const { rows } = await pool.query(
+    `insert into users (id, username, email, email_normalized, password_hash, password_salt, password_iterations, created_ip, created_user_agent)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     returning id, username, email, role, created_at`,
+    [
+      randomUUID(),
+      username,
+      email,
+      emailNormalized,
+      digest.hash,
+      digest.salt,
+      digest.iterations,
+      clientIp(req),
+      String(req.headers['user-agent'] || '').slice(0, 700)
+    ]
+  );
+  const user = publicUser(rows[0]);
+  await createSession(req, res, user);
+  await logUserEvent({ user }, req, 'register');
+  sendJson(res, 201, { ok: true, user });
+}
+
+async function handleLogin(req, res) {
+  requireAuthReady();
+  const payload = await readJson(req);
+  const emailNormalized = normalizeEmail(payload.email);
+  const password = String(payload.password || '');
+  const { rows } = await pool.query('select * from users where email_normalized = $1 limit 1', [emailNormalized]);
+  const userRow = rows[0];
+  if (!userRow || !verifyPassword(password, userRow)) {
+    throw new RequestError(401, 'Email o contrasena incorrectos.');
+  }
+  const user = publicUser(userRow);
+  await createSession(req, res, user);
+  await logUserEvent({ user }, req, 'login');
+  sendJson(res, 200, { ok: true, user });
+}
+
+async function handleLogout(req, res, auth) {
+  if (pool && auth?.session_id) {
+    await pool.query('update user_sessions set revoked_at = now() where id = $1', [auth.session_id]);
+    await logUserEvent(auth, req, 'logout');
+  }
+  clearCookie(res, AUTH_COOKIE);
+  sendJson(res, 200, { ok: true });
+}
+
+function requireUser(auth) {
+  if (!auth?.user?.id) throw new RequestError(401, 'Inicia sesion.');
+}
+
+async function accountHistory(req, res, auth) {
+  requireUser(auth);
+  const { rows } = await pool.query(
+    `select id, original_name, extension, mime_type, file_size_bytes, created_at,
+            metadata #>> '{detection,detectedType}' as detected_type,
+            metadata #>> '{detection,category}' as category
+     from file_metadata_analyses
+     where user_id = $1
+     order by created_at desc
+     limit 80`,
+    [auth.user.id]
+  );
+  sendJson(res, 200, {
+    ok: true,
+    analyses: rows.map((row) => ({
+      id: row.id,
+      originalName: row.original_name,
+      extension: row.extension || '',
+      mimeType: row.mime_type || '',
+      sizeBytes: Number(row.file_size_bytes || 0),
+      sizeHuman: formatBytes(Number(row.file_size_bytes || 0)),
+      detectedType: row.detected_type || 'generic file',
+      category: row.category || 'unknown',
+      createdAt: row.created_at
+    }))
+  });
+}
+
+async function accountSessions(req, res, auth) {
+  requireUser(auth);
+  const { rows } = await pool.query(
+    `select id, device_label, ip, user_agent, created_at, last_seen_at, expires_at,
+            revoked_at, (id = $2) as current
+     from user_sessions
+     where user_id = $1 and revoked_at is null and expires_at > now()
+     order by last_seen_at desc`,
+    [auth.user.id, auth.session_id]
+  );
+  sendJson(res, 200, { ok: true, current_session_id: auth.session_id, sessions: rows });
+}
+
+async function revokeSession(req, res, auth, sessionId) {
+  requireUser(auth);
+  await pool.query(
+    'update user_sessions set revoked_at = now() where id = $1 and user_id = $2 and id <> $3',
+    [sessionId, auth.user.id, auth.session_id]
+  );
+  sendJson(res, 200, { ok: true });
+}
+
+async function logoutOtherSessions(req, res, auth) {
+  requireUser(auth);
+  await pool.query(
+    'update user_sessions set revoked_at = now() where user_id = $1 and id <> $2 and revoked_at is null',
+    [auth.user.id, auth.session_id]
+  );
+  sendJson(res, 200, { ok: true });
 }
 
 async function serveStatic(req, res) {
@@ -509,6 +890,7 @@ async function serveStatic(req, res) {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+    const auth = await currentAuth(req);
     if (req.method === 'GET' && url.pathname === '/api/health') {
       let database = 'disabled';
       if (pool) {
@@ -520,14 +902,56 @@ const server = createServer(async (req, res) => {
         service: 'metadata',
         mode: 'file-metadata',
         database,
+        auth: pool && APP_SECRET.length >= 24 ? 'enabled' : 'disabled',
         maxFileBytes: MAX_FILE_BYTES,
         time: new Date().toISOString()
       });
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/auth/me') {
+      sendJson(res, 200, { ok: true, user: auth?.user || null });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/auth/register') {
+      await handleRegister(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+      await handleLogin(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+      await handleLogout(req, res, auth);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/account/history') {
+      await accountHistory(req, res, auth);
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/account/sessions') {
+      await accountSessions(req, res, auth);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/account/sessions/logout-others') {
+      await logoutOtherSessions(req, res, auth);
+      return;
+    }
+
+    const revokeMatch = url.pathname.match(/^\/api\/account\/sessions\/([0-9a-f-]{36})\/revoke$/);
+    if (req.method === 'POST' && revokeMatch) {
+      await revokeSession(req, res, auth, revokeMatch[1]);
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/analyze') {
-      const result = await analyzeFile(req);
+      const result = await analyzeFile(req, auth);
       sendJson(res, 200, { ok: true, result });
       return;
     }
@@ -540,6 +964,19 @@ const server = createServer(async (req, res) => {
     sendJson(res, 405, { ok: false, error: 'Method not allowed' });
   } catch (error) {
     const status = error.statusCode || 400;
+    if (error?.code === '23505') {
+      const constraint = String(error.constraint || '');
+      if (constraint === 'users_email_normalized_key') {
+        sendJson(res, 409, { ok: false, error: 'Ese correo ya esta registrado.' });
+        return;
+      }
+      if (constraint === 'users_username_lower_idx') {
+        sendJson(res, 409, { ok: false, error: 'Ese usuario ya esta en uso.' });
+        return;
+      }
+      sendJson(res, 409, { ok: false, error: 'Ese dato ya existe.' });
+      return;
+    }
     sendJson(res, status, { ok: false, error: error.message || 'Request failed' });
   }
 });

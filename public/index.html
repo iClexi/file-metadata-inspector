@@ -5,15 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
     <title>File Metadata Inspector</title>
-    <link rel="stylesheet" href="/styles.css?v=20260521-file">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css?v=20260521-sessions">
   </head>
   <body>
     <main class="page-shell">
+      <header class="topbar" aria-label="Cuenta">
+        <a class="brand-mark" href="/" aria-label="File Metadata Inspector">
+          <span aria-hidden="true"></span>
+          <strong>Metadata Inspector</strong>
+        </a>
+        <div class="auth-actions">
+          <span id="sessionUser" class="session-user" hidden></span>
+          <button id="accountButton" class="secondary-button compact" type="button" hidden>Cuenta</button>
+          <button id="authOpen" class="primary-button compact" type="button">Entrar</button>
+        </div>
+      </header>
+
       <section class="workspace" aria-labelledby="pageTitle">
         <div class="intro">
           <p class="eyebrow">metadata.iclexi.tech</p>
           <h1 id="pageTitle">Extractor de metadatos de archivos</h1>
           <p class="lead">Carga un archivo, analiza su informacion tecnica y revisa el resultado sin crear enlaces publicos ni conservar el archivo.</p>
+          <div class="signal-row" aria-label="Garantias del flujo">
+            <span>1 GB maximo</span>
+            <span>Sin archivo persistente</span>
+            <span>Sesion opcional</span>
+          </div>
         </div>
 
         <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
@@ -67,6 +85,33 @@
         </aside>
       </section>
 
+      <section id="accountPanel" class="account-panel" aria-live="polite" hidden>
+        <div class="results-heading">
+          <div>
+            <p class="eyebrow">Cuenta</p>
+            <h2>Sesiones y analisis</h2>
+          </div>
+          <div class="panel-actions">
+            <button id="logoutOthers" class="secondary-button compact" type="button">Cerrar otras sesiones</button>
+            <button id="logoutButton" class="secondary-button compact danger" type="button">Salir</button>
+          </div>
+        </div>
+        <div class="account-grid">
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Analisis guardados</h3>
+            </div>
+            <div id="accountHistory" class="history-list"></div>
+          </article>
+          <article class="detail-panel">
+            <div class="panel-head">
+              <h3>Sesiones activas</h3>
+            </div>
+            <div id="sessionsList" class="sessions-list"></div>
+          </article>
+        </div>
+      </section>
+
       <section id="resultsSection" class="results-section" aria-live="polite" hidden>
         <div class="results-heading">
           <div>
@@ -110,6 +155,45 @@
         </div>
       </section>
     </main>
-    <script src="/app.js?v=20260521-file" type="module"></script>
+
+    <section id="authModal" class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden>
+      <button class="auth-backdrop" type="button" data-auth-close aria-label="Cerrar"></button>
+      <div class="auth-panel">
+        <div class="auth-head">
+          <div>
+            <p class="eyebrow">Acceso</p>
+            <h2 id="authTitle">Cuenta de metadata</h2>
+          </div>
+          <button class="icon-button" type="button" data-auth-close aria-label="Cerrar">x</button>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="Autenticacion">
+          <button id="loginTab" class="auth-tab active" type="button">Entrar</button>
+          <button id="registerTab" class="auth-tab" type="button">Crear cuenta</button>
+        </div>
+
+        <form id="loginForm" class="auth-form">
+          <label for="loginEmail">Correo</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="email" required>
+          <label for="loginPassword">Contrasena</label>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+          <button class="primary-button" type="submit">Entrar</button>
+        </form>
+
+        <form id="registerForm" class="auth-form" hidden>
+          <label for="registerUsername">Usuario</label>
+          <input id="registerUsername" name="username" type="text" autocomplete="username" minlength="2" required>
+          <label for="registerEmail">Correo</label>
+          <input id="registerEmail" name="email" type="email" autocomplete="email" required>
+          <label for="registerPassword">Contrasena</label>
+          <input id="registerPassword" name="password" type="password" autocomplete="new-password" minlength="8" required>
+          <button class="primary-button" type="submit">Crear cuenta</button>
+        </form>
+
+        <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <script src="/app.js?v=20260521-sessions" type="module"></script>
   </body>
 </html>

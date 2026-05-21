@@ -23,8 +23,9 @@ Screenshots can be added here after a public visual pass:
 - Frontend and backend validation for the 1 GB maximum file size.
 - Streamed upload processing so full files are not written to disk.
 - Technical metadata view for file name, size, extension, MIME type, analysis date, and type-specific details when detectable.
+- Optional account sessions with HttpOnly cookies, active-device review, and session revocation.
 - No public download links, shared URLs, or file hosting behavior.
-- PostgreSQL schema focused on metadata analysis records, not stored file contents.
+- PostgreSQL schema focused on metadata analysis records, user sessions, and account-owned analysis history, not stored file contents.
 - Responsive dark blue interface with rounded panels, clear status states, and mobile-friendly layouts.
 
 ## Technology
@@ -32,6 +33,7 @@ Screenshots can be added here after a public visual pass:
 - Node.js native HTTP server
 - Busboy for streaming multipart file uploads
 - PostgreSQL for metadata analysis records
+- PBKDF2 password hashing and database-backed session tokens
 - HTML, CSS, and JavaScript frontend
 - Apache reverse proxy and systemd deployment files included as sanitized examples
 
