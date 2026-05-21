@@ -6,7 +6,7 @@
     <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
     <title>File Metadata Inspector</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260521-editor">
+    <link rel="stylesheet" href="/styles.css?v=20260521-workbench">
   </head>
   <body>
     <main class="page-shell">
@@ -25,17 +25,31 @@
       <section class="workspace" aria-labelledby="pageTitle">
         <div class="intro">
           <p class="eyebrow">metadata.iclexi.tech</p>
-          <h1 id="pageTitle">Extractor de metadatos de archivos</h1>
-          <p class="lead">Carga un archivo, analiza su informacion tecnica y revisa el resultado sin crear enlaces publicos ni conservar el archivo.</p>
+          <h1 id="pageTitle">Extractor y editor seguro de metadatos</h1>
+          <p class="lead">Analiza un archivo, revisa su metadata tecnica y crea una copia con campos nuevos sin publicar enlaces ni conservar el archivo.</p>
           <div class="signal-row" aria-label="Garantias del flujo">
             <span>1 GB maximo</span>
             <span>Sin archivo persistente</span>
+            <span>Descarga directa</span>
             <span>Sesion opcional</span>
           </div>
         </div>
 
-        <div class="tool-stack">
+        <div class="workbench">
+          <div class="workbench-head">
+            <div>
+              <p class="eyebrow">Workspace de archivo</p>
+              <h2>Sube, inspecciona y edita en un solo flujo.</h2>
+            </div>
+            <span>Privado por defecto</span>
+          </div>
+
+          <div class="tool-grid">
           <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
+            <div class="panel-kicker">
+              <span>01</span>
+              <strong>Analisis tecnico</strong>
+            </div>
             <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
               <input id="fileInput" class="file-input" name="file" type="file">
               <span class="drop-mark" aria-hidden="true"></span>
@@ -118,22 +132,23 @@
 
             <p id="editStatus" class="status-line neutral">Selecciona un archivo valido y completa al menos un campo.</p>
           </form>
-        </div>
+          </div>
 
-        <aside class="assurance-panel" aria-label="Politica de analisis">
-          <div>
-            <span>Limite</span>
-            <strong>1 GB</strong>
-          </div>
-          <div>
-            <span>Archivo</span>
-            <strong>No persistente</strong>
-          </div>
-          <div>
-            <span>Salida</span>
-            <strong>Metadata tecnica</strong>
-          </div>
-        </aside>
+          <aside class="assurance-panel" aria-label="Politica de analisis">
+            <div>
+              <span>Limite</span>
+              <strong>1 GB</strong>
+            </div>
+            <div>
+              <span>Archivo</span>
+              <strong>No persistente</strong>
+            </div>
+            <div>
+              <span>Salida</span>
+              <strong>Metadata tecnica</strong>
+            </div>
+          </aside>
+        </div>
       </section>
 
       <section id="accountPanel" class="account-panel" aria-live="polite" hidden>
@@ -245,6 +260,6 @@
       </div>
     </section>
 
-    <script src="/app.js?v=20260521-editor" type="module"></script>
+    <script src="/app.js?v=20260521-workbench" type="module"></script>
   </body>
 </html>
