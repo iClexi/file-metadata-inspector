@@ -2,6 +2,7 @@ import { animate, spring, stagger } from './vendor/anime.esm.min.js';
 
 const MAX_FILE_BYTES = 1024 * 1024 * 1024;
 const LIMIT_MESSAGE = 'El archivo supera el limite maximo permitido de 1 GB. Selecciona un archivo mas pequeno.';
+const LEGAL_NOTICE_KEY = 'metadata_legal_ack_v1';
 
 const uploadForm = document.querySelector('#uploadForm');
 const fileInput = document.querySelector('#fileInput');
@@ -43,8 +44,11 @@ const editButton = document.querySelector('#editButton');
 const editStatus = document.querySelector('#editStatus');
 const clearMetadataFields = document.querySelector('#clearMetadataFields');
 const metadataFields = Array.from(document.querySelectorAll('[data-metadata-field]'));
+const legalNotice = document.querySelector('#legalNotice');
+const legalAccept = document.querySelector('#legalAccept');
 const workbenchHead = document.querySelector('.workbench-head');
 const assurancePanel = document.querySelector('.assurance-panel');
+const legalPreview = document.querySelector('.legal-preview');
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let currentFile = null;
@@ -69,6 +73,7 @@ function animatePageIntro() {
     workbenchHead,
     uploadForm,
     editorForm,
+    legalPreview,
     assurancePanel
   ].filter(Boolean);
 
@@ -95,6 +100,63 @@ function animatePageIntro() {
     delay: 430,
     ease: spring({ bounce: 0.38, duration: 900 })
   });
+}
+
+function readLegalAcknowledgement() {
+  try {
+    return window.localStorage.getItem(LEGAL_NOTICE_KEY) === 'accepted';
+  } catch {
+    return false;
+  }
+}
+
+function writeLegalAcknowledgement() {
+  try {
+    window.localStorage.setItem(LEGAL_NOTICE_KEY, 'accepted');
+  } catch {
+    // localStorage can be unavailable in hardened browser contexts.
+  }
+}
+
+function legalFocusableElements() {
+  if (!legalNotice || legalNotice.hidden) return [];
+  return Array.from(legalNotice.querySelectorAll('a[href], button:not([disabled])'));
+}
+
+function openLegalNotice() {
+  if (!legalNotice || readLegalAcknowledgement()) return;
+  legalNotice.hidden = false;
+  document.body.classList.add('modal-open');
+  const targets = [
+    legalNotice.querySelector('.legal-notice-card'),
+    ...legalNotice.querySelectorAll('.legal-notice-grid article'),
+    ...legalNotice.querySelectorAll('.legal-notice-links a'),
+    legalAccept
+  ].filter(Boolean);
+  playMotion(targets, {
+    opacity: [0, 1],
+    translateY: [22, 0],
+    scale: [0.98, 1],
+    delay: stagger(50),
+    duration: 520,
+    ease: 'outCubic'
+  });
+  setTimeout(() => legalAccept?.focus(), 80);
+}
+
+function closeLegalNotice() {
+  if (!legalNotice) return;
+  writeLegalAcknowledgement();
+  playMotion(legalNotice.querySelector('.legal-notice-card'), {
+    opacity: [1, 0],
+    translateY: [0, 14],
+    duration: 180,
+    ease: 'inCubic'
+  });
+  setTimeout(() => {
+    legalNotice.hidden = true;
+    document.body.classList.remove('modal-open');
+  }, canAnimate() ? 190 : 0);
 }
 
 function animateDropPulse() {
@@ -765,5 +827,23 @@ logoutOthers.addEventListener('click', async () => {
   await loadAccount();
 });
 
+legalAccept?.addEventListener('click', closeLegalNotice);
+
+legalNotice?.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const focusables = legalFocusableElements();
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
 animatePageIntro();
 loadMe().catch(() => renderAuthState(null));
+openLegalNotice();

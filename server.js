@@ -141,11 +141,18 @@ async function initDb() {
   `);
 }
 
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()'
+};
+
 function sendJson(res, status, data, headers = {}) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
+    ...securityHeaders,
     ...headers
   });
   res.end(JSON.stringify(data));
@@ -1022,7 +1029,7 @@ async function handleEditMetadata(req, res, auth) {
       'Content-Length': String(outputStats.size),
       'Content-Disposition': contentDisposition(downloadName),
       'Cache-Control': 'no-store',
-      'X-Content-Type-Options': 'nosniff'
+      ...securityHeaders
     });
     await pipeline(createReadStream(upload.inputPath), res);
   } finally {
@@ -1086,7 +1093,7 @@ async function handleLogout(req, res, auth) {
     await logUserEvent(auth, req, 'logout');
   }
   clearCookie(res, AUTH_COOKIE);
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true }, { 'Clear-Site-Data': '"cookies"' });
 }
 
 function requireUser(auth) {
@@ -1154,7 +1161,16 @@ async function logoutOtherSessions(req, res, auth) {
 
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const rawPath = url.pathname === '/' ? '/index.html' : url.pathname;
+  const routeAliases = {
+    '/terminos': '/terms.html',
+    '/condiciones': '/terms.html',
+    '/privacidad': '/privacy.html',
+    '/cookies': '/cookies.html',
+    '/terms': '/terms.html',
+    '/privacy': '/privacy.html'
+  };
+  const routePath = routeAliases[url.pathname] || url.pathname;
+  const rawPath = routePath === '/' ? '/index.html' : routePath;
   const safePath = normalize(rawPath).replace(/^(\.\.[/\\])+/, '');
   const filePath = join(PUBLIC_DIR, safePath);
   if (!filePath.startsWith(PUBLIC_DIR)) {
@@ -1166,7 +1182,7 @@ async function serveStatic(req, res) {
     res.writeHead(200, {
       'Content-Type': staticMime[extname(filePath)] || 'application/octet-stream',
       'Cache-Control': rawPath === '/index.html' ? 'no-store' : 'public, max-age=3600',
-      'X-Content-Type-Options': 'nosniff'
+      ...securityHeaders
     });
     res.end(content);
   } catch {

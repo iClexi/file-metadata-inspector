@@ -6,7 +6,7 @@
     <meta name="description" content="Extraccion segura de metadatos tecnicos de archivos.">
     <title>File Metadata Inspector</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260521-anime-upload">
+    <link rel="stylesheet" href="/styles.css?v=20260521-legal-workbench2">
   </head>
   <body>
     <main class="page-shell">
@@ -45,93 +45,130 @@
           </div>
 
           <div class="tool-grid">
-          <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
-            <div class="panel-kicker">
-              <span>01</span>
-              <strong>Analisis tecnico</strong>
-            </div>
-            <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
-              <input id="fileInput" class="file-input" name="file" type="file">
-              <span class="drop-mark" aria-hidden="true"></span>
-              <span class="drop-title">Selecciona un archivo</span>
-              <span class="drop-copy">Arrastra aqui el archivo que quieres analizar</span>
-            </label>
-
-            <div class="selected-file" id="selectedFile" hidden>
-              <div>
-                <span class="label">Archivo</span>
-                <strong id="selectedName">--</strong>
+            <form id="uploadForm" class="upload-panel" enctype="multipart/form-data" autocomplete="off">
+              <div class="panel-kicker">
+                <span>01</span>
+                <strong>Analisis tecnico</strong>
               </div>
-              <span id="selectedSize">--</span>
-            </div>
+              <label id="dropZone" class="drop-zone" for="fileInput" tabindex="0">
+                <input id="fileInput" class="file-input" name="file" type="file">
+                <span class="drop-mark" aria-hidden="true"></span>
+                <span class="drop-title">Selecciona un archivo</span>
+                <span class="drop-copy">Arrastra aqui el archivo que quieres analizar</span>
+              </label>
 
-            <div class="action-row">
-              <button id="analyzeButton" class="primary-button" type="submit" disabled>
-                Extraer metadata
-              </button>
-              <button id="clearButton" class="secondary-button" type="button" disabled>
-                Limpiar
-              </button>
-            </div>
-
-            <div class="progress-wrap" id="progressWrap" hidden>
-              <div class="progress-track">
-                <span id="progressBar"></span>
+              <div class="selected-file" id="selectedFile" hidden>
+                <div>
+                  <span class="label">Archivo</span>
+                  <strong id="selectedName">--</strong>
+                </div>
+                <span id="selectedSize">--</span>
               </div>
-              <span id="progressText">0%</span>
-            </div>
 
-            <p id="statusLine" class="status-line neutral">Esperando archivo</p>
-          </form>
-
-          <form id="editorForm" class="editor-panel" autocomplete="off">
-            <div class="editor-head">
-              <div>
-                <p class="eyebrow">Editor de metadata</p>
-                <h2>Crear copia con metadata nueva</h2>
+              <div class="action-row">
+                <button id="analyzeButton" class="primary-button" type="submit" disabled>
+                  Extraer metadata
+                </button>
+                <button id="clearButton" class="secondary-button" type="button" disabled>
+                  Limpiar
+                </button>
               </div>
-              <span class="date-chip">Descarga directa</span>
-            </div>
-            <p class="editor-copy">Escribe campos comunes y recibe una copia actualizada. No se crea enlace publico ni se conserva el archivo.</p>
 
-            <div class="metadata-form-grid">
-              <label class="field-control" for="metaTitle">
-                <span>Titulo</span>
-                <input id="metaTitle" data-metadata-field="title" type="text" maxlength="180" placeholder="Titulo del archivo">
-              </label>
-              <label class="field-control" for="metaAuthor">
-                <span>Autor</span>
-                <input id="metaAuthor" data-metadata-field="author" type="text" maxlength="180" placeholder="Nombre del autor">
-              </label>
-              <label class="field-control" for="metaCopyright">
-                <span>Copyright</span>
-                <input id="metaCopyright" data-metadata-field="copyright" type="text" maxlength="240" placeholder="Aviso de derechos">
-              </label>
-              <label class="field-control" for="metaKeywords">
-                <span>Palabras clave</span>
-                <input id="metaKeywords" data-metadata-field="keywords" type="text" maxlength="500" placeholder="seguridad, archivo, metadata">
-              </label>
-              <label class="field-control wide" for="metaDescription">
-                <span>Descripcion</span>
-                <textarea id="metaDescription" data-metadata-field="description" maxlength="1000" rows="3" placeholder="Descripcion tecnica o contextual"></textarea>
-              </label>
-              <label class="field-control wide" for="metaComment">
-                <span>Comentario</span>
-                <textarea id="metaComment" data-metadata-field="comment" maxlength="500" rows="2" placeholder="Comentario breve para el archivo"></textarea>
-              </label>
-            </div>
+              <div class="progress-wrap" id="progressWrap" hidden>
+                <div class="progress-track">
+                  <span id="progressBar"></span>
+                </div>
+                <span id="progressText">0%</span>
+              </div>
 
-            <div class="action-row editor-actions">
-              <button id="editButton" class="primary-button" type="submit" disabled>
-                Descargar archivo actualizado
-              </button>
-              <button id="clearMetadataFields" class="secondary-button" type="button">
-                Limpiar campos
-              </button>
-            </div>
+              <p id="statusLine" class="status-line neutral">Esperando archivo</p>
+            </form>
 
-            <p id="editStatus" class="status-line neutral">Selecciona un archivo valido y completa al menos un campo.</p>
-          </form>
+            <section class="metadata-workflow" aria-labelledby="editorTitle">
+              <form id="editorForm" class="editor-panel" autocomplete="off">
+                <div class="panel-kicker align-left">
+                  <span>02</span>
+                  <strong>Editor de metadata</strong>
+                </div>
+                <div class="editor-head">
+                  <div>
+                    <p class="eyebrow">Copia actualizada</p>
+                    <h2 id="editorTitle">Edita campos claros sin convertir la pagina en hosting</h2>
+                  </div>
+                  <span class="date-chip">Descarga directa</span>
+                </div>
+                <p class="editor-copy">Usa solo campos comunes, genera una copia local para descarga y mantiene el archivo fuera de almacenamiento permanente.</p>
+
+                <div class="metadata-form-grid">
+                  <label class="field-control" for="metaTitle">
+                    <span>Titulo</span>
+                    <input id="metaTitle" data-metadata-field="title" name="title" type="text" maxlength="180" placeholder="Titulo del archivo">
+                  </label>
+                  <label class="field-control" for="metaAuthor">
+                    <span>Autor</span>
+                    <input id="metaAuthor" data-metadata-field="author" name="author" type="text" maxlength="180" placeholder="Nombre del autor">
+                  </label>
+                  <label class="field-control" for="metaCopyright">
+                    <span>Copyright</span>
+                    <input id="metaCopyright" data-metadata-field="copyright" name="copyright" type="text" maxlength="240" placeholder="Aviso de derechos">
+                  </label>
+                  <label class="field-control" for="metaKeywords">
+                    <span>Palabras clave</span>
+                    <input id="metaKeywords" data-metadata-field="keywords" name="keywords" type="text" maxlength="500" placeholder="seguridad, archivo, metadata">
+                  </label>
+                  <label class="field-control wide" for="metaDescription">
+                    <span>Descripcion</span>
+                    <textarea id="metaDescription" data-metadata-field="description" name="description" maxlength="1000" rows="4" placeholder="Descripcion tecnica o contextual"></textarea>
+                  </label>
+                  <label class="field-control wide" for="metaComment">
+                    <span>Comentario</span>
+                    <textarea id="metaComment" data-metadata-field="comment" name="comment" maxlength="500" rows="3" placeholder="Comentario breve para el archivo"></textarea>
+                  </label>
+                </div>
+
+                <div class="action-row editor-actions">
+                  <button id="editButton" class="primary-button" type="submit" disabled>
+                    Descargar archivo actualizado
+                  </button>
+                  <button id="clearMetadataFields" class="secondary-button" type="button">
+                    Limpiar campos
+                  </button>
+                </div>
+
+                <p id="editStatus" class="status-line neutral">Selecciona un archivo valido y completa al menos un campo.</p>
+              </form>
+
+              <aside class="legal-preview" aria-label="Marco legal y privacidad">
+                <p class="eyebrow">Marco legal</p>
+                <h3>Privacidad desde el primer uso</h3>
+                <p>La pagina trabaja solo para extraer o editar metadata tecnica. No publica archivos, no crea enlaces compartibles y evita guardar contenido innecesario.</p>
+                <div class="legal-chip-list" aria-label="Resumen legal">
+                  <span>Cookies esenciales</span>
+                  <span>Sin analitica invasiva</span>
+                  <span>Cuenta opcional</span>
+                  <span>1 GB maximo</span>
+                </div>
+                <div class="legal-rule-list" aria-label="Reglas de manejo de datos">
+                  <div>
+                    <strong>Tratamiento temporal</strong>
+                    <span>El archivo se usa solo durante el analisis o la edicion solicitada.</span>
+                  </div>
+                  <div>
+                    <strong>Sin enlaces publicos</strong>
+                    <span>La copia editada se entrega como descarga directa, no como URL compartible.</span>
+                  </div>
+                  <div>
+                    <strong>Historial limitado</strong>
+                    <span>La cuenta opcional guarda registros tecnicos, no copias completas del archivo.</span>
+                  </div>
+                </div>
+                <nav class="legal-links" aria-label="Documentos legales">
+                  <a href="/terminos">Terminos</a>
+                  <a href="/privacidad">Privacidad</a>
+                  <a href="/cookies">Cookies</a>
+                </nav>
+              </aside>
+            </section>
           </div>
 
           <aside class="assurance-panel" aria-label="Politica de analisis">
@@ -220,7 +257,52 @@
           </article>
         </div>
       </section>
+
+      <footer class="legal-footer" aria-label="Marco legal">
+        <span>Metadata Inspector procesa archivos solo para metadata tecnica.</span>
+        <nav aria-label="Enlaces legales">
+          <a href="/terminos">Terminos y condiciones</a>
+          <a href="/privacidad">Privacidad</a>
+          <a href="/cookies">Cookies</a>
+        </nav>
+      </footer>
     </main>
+
+    <section id="legalNotice" class="legal-notice" role="dialog" aria-modal="true" aria-labelledby="legalNoticeTitle" aria-describedby="legalNoticeCopy" hidden>
+      <div class="legal-notice-backdrop" aria-hidden="true"></div>
+      <div class="legal-notice-card">
+        <div class="legal-notice-head">
+          <p class="eyebrow">Antes de usar la pagina</p>
+          <h2 id="legalNoticeTitle">Uso seguro, privacidad y cookies</h2>
+        </div>
+        <p id="legalNoticeCopy">Esta herramienta existe solo para extraer y editar metadatos de archivos. Procesa el archivo temporalmente, limita cargas a 1 GB, no crea enlaces publicos y usa cookies esenciales solo para sesiones de cuenta.</p>
+        <div class="legal-notice-grid">
+          <article>
+            <span>Archivos</span>
+            <strong>No hosting</strong>
+            <p>No almacena copias permanentes ni permite compartir descargas publicas.</p>
+          </article>
+          <article>
+            <span>Datos</span>
+            <strong>Minimos</strong>
+            <p>Solo se registra metadata tecnica y actividad de cuenta si decides iniciar sesion.</p>
+          </article>
+          <article>
+            <span>Cookies</span>
+            <strong>Esenciales</strong>
+            <p>La sesion usa cookie HttpOnly; este aviso se recuerda con almacenamiento local.</p>
+          </article>
+        </div>
+        <nav class="legal-notice-links" aria-label="Documentos legales">
+          <a href="/terminos" target="_blank" rel="noopener">Terminos</a>
+          <a href="/privacidad" target="_blank" rel="noopener">Privacidad</a>
+          <a href="/cookies" target="_blank" rel="noopener">Cookies</a>
+        </nav>
+        <div class="legal-notice-actions">
+          <button id="legalAccept" class="primary-button" type="button">Aceptar y continuar</button>
+        </div>
+      </div>
+    </section>
 
     <section id="authModal" class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden>
       <button class="auth-backdrop" type="button" data-auth-close aria-label="Cerrar"></button>
@@ -260,6 +342,6 @@
       </div>
     </section>
 
-    <script src="/app.js?v=20260521-anime-upload" type="module"></script>
+    <script src="/app.js?v=20260521-legal-workbench2" type="module"></script>
   </body>
 </html>
